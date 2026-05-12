@@ -1,8 +1,8 @@
 # %% [markdown]
-# # Classificazione Quantistica delle Immagini (QVC) — 8 Qubit
+# # Quantum Image Classification (QVC) — 8 Qubits
 #
-# Versione estesa a 8 qubit su Fashion-MNIST (16x16).
-# Struttura identica a Test.py; le differenze sono documentate in modifiche_8_qubit.md.
+# Extended 8-qubit variant trained on Fashion-MNIST (16x16 resolution).
+# Architecture mirrors Test.py; differences are documented in modifiche_8_qubit.md.
 
 # %%
 import os, json, time, math, random
@@ -33,7 +33,7 @@ CONFIG = {
     "VAL_SAMPLES": 500,
     "TEST_SAMPLES": 500,
     "EPOCHS": 15,
-    "LR": 1e-2,
+    # NOTE: "LR" is intentionally absent; per-group learning rates (LR_HEAD, LR_QKERNEL, LR_EMBED) are used instead.
     "WEIGHT_DECAY": 0.0,
     "CLIP_NORM": 0.5,
     "ACC_STEPS": 5,
@@ -55,8 +55,8 @@ CONFIG = {
     "E1_INIT_A": 0.2,
 }
 
-N_CLASSES = 10  # Fashion-MNIST: tutte le 10 classi, nessun filtraggio
-N_QUBITS = 8
+N_CLASSES = 10  # Fashion-MNIST: all 10 classes, no filtering applied
+N_QUBITS = 8  # Must match the number of local wires in conv8, pool8, and all QNode wire lists.
 
 LAMBDA_FUSION = np.pi / 4
 EPS = 1e-8
@@ -105,7 +105,8 @@ def image_to_numpy(img_tensor: torch.Tensor) -> np.ndarray:
 
 
 def extract_patches_2x2(X: np.ndarray) -> np.ndarray:
-    # 16x16 image -> 8x8 grid = 64 patches of 2x2
+    # 16x16 image -> 8x8 grid = 64 non-overlapping 2x2 patches.
+    # The loop bounds (8) are the patch-grid dimension, not N_QUBITS.
     patches = []
     for r in range(8):
         for c in range(8):
@@ -279,13 +280,19 @@ QNODE9_KW = dict(interface="torch", diff_method=diff9)
 # Shared quantum kernel: conv8 + pool8
 # ----------------------------
 def conv8(theta, wires):
+    """Convolutional ansatz: N_QUBITS single-qubit RY rotations followed by
+    two interleaved layers of CNOT+RZ entangling gates — first even pairs
+    (0-1, 2-3, 4-5, 6-7), then odd pairs (1-2, 3-4, 5-6, 7-0).
+    Requires len(theta) == 2 * N_QUBITS (16 parameters for N_QUBITS=8)."""
     q = wires
-    for i in range(8):
+    for i in range(N_QUBITS):
         qml.RY(theta[i], wires=q[i])
+    # Layer 1: even-pair entanglement
     qml.CNOT(wires=[q[0], q[1]]); qml.RZ(theta[8],  wires=q[1])
     qml.CNOT(wires=[q[2], q[3]]); qml.RZ(theta[9],  wires=q[3])
     qml.CNOT(wires=[q[4], q[5]]); qml.RZ(theta[10], wires=q[5])
     qml.CNOT(wires=[q[6], q[7]]); qml.RZ(theta[11], wires=q[7])
+    # Layer 2: odd-pair entanglement (shifted by one, wrapping around)
     qml.CNOT(wires=[q[1], q[2]]); qml.RZ(theta[12], wires=q[2])
     qml.CNOT(wires=[q[3], q[4]]); qml.RZ(theta[13], wires=q[4])
     qml.CNOT(wires=[q[5], q[6]]); qml.RZ(theta[14], wires=q[6])
@@ -293,27 +300,29 @@ def conv8(theta, wires):
 
 
 def pool8(phi, wires):
+    """Pooling ansatz: alternating CRZ and CRX controlled rotations across
+    paired qubits. Requires len(phi) == N_QUBITS."""
     q = wires
-    qml.CRZ(phi[0], wires=[q[1], q[0]])
-    qml.CRZ(phi[1], wires=[q[3], q[2]])
-    qml.CRZ(phi[2], wires=[q[5], q[4]])
-    qml.CRZ(phi[3], wires=[q[7], q[6]])
-    qml.CRX(phi[4], wires=[q[2], q[1]])
-    qml.CRX(phi[5], wires=[q[4], q[3]])
-    qml.CRX(phi[6], wires=[q[6], q[5]])
-    qml.CRX(phi[7], wires=[q[0], q[7]])
+    n = N_QUBITS
+    half = n // 2
+    for i in range(half):
+        qml.CRZ(phi[i], wires=[q[2 * i + 1], q[2 * i]])
+    for i in range(half):
+        qml.CRX(phi[half + i], wires=[q[(2 * i + 2) % n], q[(2 * i + 1) % n]])
 
 
 # ----------------------------
 # Embeddings
 # ----------------------------
 def embed_E2_local_8(quad_means_8):
-    for i in range(8):
+    """Angle embedding: each of the N_QUBITS local mean values is encoded as an RY rotation scaled by pi."""
+    for i in range(N_QUBITS):
         qml.RY(math.pi * quad_means_8[i], wires=i)
 
 
 def embed_E4_local_8(quad_means_8, a8, c8):
-    for i in range(8):
+    """Trainable angle embedding: RY(a[i] * pi * x[i] + c[i]) for each local wire."""
+    for i in range(N_QUBITS):
         qml.RY(a8[i] * (math.pi * quad_means_8[i]) + c8[i], wires=i)
 
 
@@ -350,10 +359,12 @@ def inject_global_on_wire_8(
 
 
 def fuse_global_to_locals_8(lam=LAMBDA_FUSION):
-    for i in range(8):
-        qml.CNOT(wires=[8, i])
+    """Entangle the global ancilla wire (wire N_QUBITS) with all local wires
+    via a symmetric CNOT-RZ-CNOT sequence."""
+    for i in range(N_QUBITS):
+        qml.CNOT(wires=[N_QUBITS, i])
         qml.RZ(lam, wires=i)
-        qml.CNOT(wires=[8, i])
+        qml.CNOT(wires=[N_QUBITS, i])
 
 
 # ----------------------------
@@ -362,33 +373,34 @@ def fuse_global_to_locals_8(lam=LAMBDA_FUSION):
 @qml.qnode(dev8, **QNODE8_KW)
 def qnode_quadrant_E2_8(quad_means_8, theta_conv, phi_pool):
     embed_E2_local_8(quad_means_8)
-    conv8(theta_conv, wires=list(range(8)))
-    pool8(phi_pool, wires=list(range(8)))
-    return [qml.expval(qml.PauliZ(i)) for i in range(8)]
+    conv8(theta_conv, wires=list(range(N_QUBITS)))
+    pool8(phi_pool, wires=list(range(N_QUBITS)))
+    return [qml.expval(qml.PauliZ(i)) for i in range(N_QUBITS)]
 
 
 @qml.qnode(dev8, **QNODE8_KW)
 def qnode_quadrant_E3_8(quad_amp_64, theta_conv, phi_pool):
-    # pad_with=0.0 estende 64 → 256 (= 2^8); normalize=True normalizza a norma 1.
-    # Fallback su near-zero: AmplitudeEmbedding con normalize=True fallirebbe su vettore nullo.
-    amp = torch.clamp(quad_amp_64, 0.0, 1.0)
-    nrm = torch.linalg.norm(amp)
-    if nrm.item() < 1e-12:
-        amp = torch.zeros(64, dtype=amp.dtype)
-        amp[0] = 1.0
-    qml.AmplitudeEmbedding(amp, wires=range(8), pad_with=0.0, normalize=True)
-    conv8(theta_conv, wires=list(range(8)))
-    pool8(phi_pool, wires=list(range(8)))
-    return [qml.expval(qml.PauliZ(i)) for i in range(8)]
+    # pad_with=0.0 zero-pads the 64-element amplitude vector to 2^N_QUBITS = 256 entries;
+    # normalize=True rescales to unit norm before embedding.
+    # NOTE: near-zero fallback is handled OUTSIDE the QNode (in features_from_sample)
+    # to preserve differentiability with lightning.qubit + adjoint differentiation.
+    qml.AmplitudeEmbedding(quad_amp_64, wires=range(N_QUBITS), pad_with=0.0, normalize=True)
+    conv8(theta_conv, wires=list(range(N_QUBITS)))
+    pool8(phi_pool, wires=list(range(N_QUBITS)))
+    return [qml.expval(qml.PauliZ(i)) for i in range(N_QUBITS)]
 
 
 @qml.qnode(dev8, **QNODE8_KW)
 def qnode_quadrant_E4_8(quad_means_8, a8, c8, theta_conv, phi_pool):
     embed_E4_local_8(quad_means_8, a8, c8)
-    conv8(theta_conv, wires=list(range(8)))
-    pool8(phi_pool, wires=list(range(8)))
-    return [qml.expval(qml.PauliZ(i)) for i in range(8)]
+    conv8(theta_conv, wires=list(range(N_QUBITS)))
+    pool8(phi_pool, wires=list(range(N_QUBITS)))
+    return [qml.expval(qml.PauliZ(i)) for i in range(N_QUBITS)]
 
+
+# Two separate QNodes for E1 with fixed output sizes (8 or 9 values).
+# A single QNode with a runtime-conditional output structure is incompatible
+# with lightning.qubit adjoint differentiation, which requires a static tape.
 
 @qml.qnode(dev9, **QNODE9_KW)
 def qnode_quadrant_E1_8(
@@ -398,20 +410,36 @@ def qnode_quadrant_E1_8(
     c8,
     theta_conv,
     phi_pool,
-    include_global_readout: bool,
     omega=None,
     use_reupload=True,
 ):
+    """E1 QNode — N_QUBITS outputs (wires 0..N_QUBITS-1). Used when fair_dim_match=True."""
     embed_E4_local_8(quad_means_8, a8, c8)
     inject_global_on_wire_8(gA4_vec, omega=omega, use_reupload=use_reupload)
     fuse_global_to_locals_8(lam=LAMBDA_FUSION)
-    conv8(theta_conv, wires=list(range(8)))
-    pool8(phi_pool, wires=list(range(8)))
+    conv8(theta_conv, wires=list(range(N_QUBITS)))
+    pool8(phi_pool, wires=list(range(N_QUBITS)))
+    return [qml.expval(qml.PauliZ(i)) for i in range(N_QUBITS)]
 
-    outs = [qml.expval(qml.PauliZ(i)) for i in range(8)]
-    if include_global_readout:
-        outs.append(qml.expval(qml.PauliZ(8)))
-    return outs
+
+@qml.qnode(dev9, **QNODE9_KW)
+def qnode_quadrant_E1_9(
+    quad_means_8,
+    gA4_vec,
+    a8,
+    c8,
+    theta_conv,
+    phi_pool,
+    omega=None,
+    use_reupload=True,
+):
+    """E1 QNode — N_QUBITS+1 outputs (wires 0..N_QUBITS), including the global ancilla. Used when fair_dim_match=False."""
+    embed_E4_local_8(quad_means_8, a8, c8)
+    inject_global_on_wire_8(gA4_vec, omega=omega, use_reupload=use_reupload)
+    fuse_global_to_locals_8(lam=LAMBDA_FUSION)
+    conv8(theta_conv, wires=list(range(N_QUBITS)))
+    pool8(phi_pool, wires=list(range(N_QUBITS)))
+    return [qml.expval(qml.PauliZ(i)) for i in range(N_QUBITS + 1)]
 
 
 # ----------------------------
@@ -440,10 +468,8 @@ class QuanvEmbedModel(torch.nn.Module):
                 torch.tensor(float(CONFIG["E1NP_OMEGA_FIXED"]), dtype=torch.float32),
             )
 
-        self.register_buffer(
-            "e1np_omega_fixed_tensor",
-            torch.tensor(float(CONFIG["E1NP_OMEGA_FIXED"]), dtype=torch.float32),
-        )
+        # e1np_omega_fixed_tensor was previously registered as a fallback reference
+        # but is never accessed in forward paths; removed to avoid dead state.
 
         self.e4_a32 = torch.nn.Parameter(torch.ones(32, dtype=torch.float32))
         self.e4_c32 = torch.nn.Parameter(torch.zeros(32, dtype=torch.float32))
@@ -451,11 +477,12 @@ class QuanvEmbedModel(torch.nn.Module):
         self.theta_conv = torch.nn.Parameter(0.01 * torch.randn(16, dtype=torch.float32))
         self.phi_pool = torch.nn.Parameter(torch.zeros(8, dtype=torch.float32))
 
-        # E1 with fair_dim_match=False: each of 4 qnodes returns 9 values (8+1 global)
+        # E1 with fair_dim_match=False: each of 4 QNodes returns N_QUBITS+1 values (local + global ancilla).
+        # All other variants return N_QUBITS values per quadrant.
         if self.variant == "E1" and (not self.fair_dim_match):
-            out_dim = 36
+            out_dim = 4 * (N_QUBITS + 1)  # = 36
         else:
-            out_dim = 32
+            out_dim = 4 * N_QUBITS        # = 32
 
         self.head = torch.nn.Sequential(
             torch.nn.LayerNorm(out_dim),
@@ -480,16 +507,19 @@ class QuanvEmbedModel(torch.nn.Module):
             include_global = not self.fair_dim_match
             a8s, c8s = self._quadrant_params(self.e1_a32, self.e1_c32)
 
+            # Select the appropriate fixed-output QNode based on fair_dim_match.
+            # Using two separate QNodes is required for adjoint compatibility with
+            # lightning.qubit, which demands a statically shaped output tape.
+            _e1_qnode = qnode_quadrant_E1_8 if not include_global else qnode_quadrant_E1_9
             for q in range(4):
                 t0 = time.time()
-                out = qnode_quadrant_E1_8(
+                out = _e1_qnode(
                     quad_means[q],
                     gA4,
                     a8s[q],
                     c8s[q],
                     self.theta_conv,
                     self.phi_pool,
-                    include_global_readout=include_global,
                     omega=self.e1np_omega,
                     use_reupload=CONFIG["E1NP_USE_REUPLOAD"],
                 )
@@ -510,11 +540,15 @@ class QuanvEmbedModel(torch.nn.Module):
         elif self.variant == "E3":
             quads64 = sample["quads64"]  # (4, 64)
             for q in range(4):
+                # Near-zero fallback handled outside the QNode to preserve differentiability.
                 amp = torch.clamp(quads64[q], 0.0, 1.0)
-                if torch.linalg.norm(amp).item() < 1e-12:
+                nrm = torch.linalg.norm(amp)
+                if nrm.item() < 1e-12:
                     e3_fallback_quadrants += 1
+                    amp = torch.zeros(64, dtype=amp.dtype)
+                    amp[0] = 1.0
                 t0 = time.time()
-                out = qnode_quadrant_E3_8(quads64[q], self.theta_conv, self.phi_pool)
+                out = qnode_quadrant_E3_8(amp, self.theta_conv, self.phi_pool)
                 qtime += time.time() - t0
                 feats.append(torch.stack(out))
             feat_vec = torch.cat(feats, dim=0)
@@ -577,10 +611,20 @@ def grad_norm_of_params(params):
 
 
 def group_grad_norms(model: QuanvEmbedModel):
+    """Return L2 gradient norms for each trainable parameter group.
+
+    For E1, e1np_omega is included only when it is a trainable Parameter
+    (E1NP_OMEGA_TRAINABLE=True). When it is a frozen buffer its .grad is
+    always None and grad_norm_of_params silently skips it, so the reported
+    norm covers only e1_a32 and e1_c32 in the frozen case.
+    """
+    e1_params = [model.e1_a32, model.e1_c32]
+    omega = getattr(model, "e1np_omega", None)
+    if omega is not None and isinstance(omega, torch.nn.Parameter):
+        e1_params.append(omega)
+
     return {
-        "grad_e1_embed": grad_norm_of_params(
-            [model.e1_a32, model.e1_c32, getattr(model, "e1np_omega", None)]
-        )
+        "grad_e1_embed": grad_norm_of_params(e1_params)
         if model.variant == "E1"
         else 0.0,
         "grad_e4_embed": grad_norm_of_params([model.e4_a32, model.e4_c32])
@@ -655,14 +699,19 @@ def draw_circuits(save: bool = True):
 
     if "E1" in CONFIG["VARIANTS"]:
         plt.figure(figsize=(24, 4), facecolor="white")
-        qml.draw_mpl(qnode_quadrant_E1_8)(
+        # Select the correct fixed-output QNode (8 or 9 values) based on fair_dim_match.
+        _draw_e1_qnode = (
+            qnode_quadrant_E1_9
+            if not CONFIG["FAIR_DIM_MATCH"]
+            else qnode_quadrant_E1_8
+        )
+        qml.draw_mpl(_draw_e1_qnode)(
             quad_means_8,
             gA4_vec,
             a8,
             c8,
             theta_conv,
             phi_pool,
-            (not CONFIG["FAIR_DIM_MATCH"]),
             omega=torch.tensor(float(CONFIG["E1NP_OMEGA_FIXED"])),
             use_reupload=CONFIG["E1NP_USE_REUPLOAD"],
         )
@@ -736,36 +785,37 @@ def run_one(
 
     embed_params = []
     if variant == "E1":
-        embed_params += [model.e1_a32, model.e1_c32, getattr(model, "e1np_omega", None)]
-        embed_params = [p for p in embed_params if p is not None]
+        # Include e1np_omega in the optimizer only if it is a trainable Parameter,
+        # not a frozen buffer (set when E1NP_OMEGA_TRAINABLE=False).
+        omega_cand = getattr(model, "e1np_omega", None)
+        embed_params += [model.e1_a32, model.e1_c32]
+        if omega_cand is not None and isinstance(omega_cand, torch.nn.Parameter):
+            embed_params.append(omega_cand)
     elif variant == "E4":
         embed_params += [model.e4_a32, model.e4_c32]
 
-    opt = torch.optim.Adam(
-        [
-            {
-                "params": head_params,
-                "lr": CONFIG["LR_HEAD"],
-                "weight_decay": CONFIG["WEIGHT_DECAY"],
-            },
-            {
-                "params": qkernel_params,
-                "lr": CONFIG["LR_QKERNEL"],
-                "weight_decay": CONFIG["WEIGHT_DECAY"],
-            },
+    param_groups = [
+        {
+            "params": head_params,
+            "lr": CONFIG["LR_HEAD"],
+            "weight_decay": CONFIG["WEIGHT_DECAY"],
+        },
+        {
+            "params": qkernel_params,
+            "lr": CONFIG["LR_QKERNEL"],
+            "weight_decay": CONFIG["WEIGHT_DECAY"],
+        },
+    ]
+    if len(embed_params) > 0:
+        param_groups.append(
             {
                 "params": embed_params,
                 "lr": CONFIG["LR_EMBED"],
                 "weight_decay": CONFIG["WEIGHT_DECAY"],
             }
-            if len(embed_params)
-            else {
-                "params": [],
-                "lr": CONFIG["LR_EMBED"],
-                "weight_decay": CONFIG["WEIGHT_DECAY"],
-            },
-        ]
-    )
+        )
+
+    opt = torch.optim.Adam(param_groups)
 
     rows = []
     acc_steps = max(1, int(CONFIG["ACC_STEPS"]))
@@ -811,7 +861,7 @@ def run_one(
             opt.step()
             opt.zero_grad()
 
-        # diagnostic backward for grad norms
+        # Diagnostic backward pass on a single sample to compute per-group gradient norms.
         model.train()
         opt.zero_grad()
         diag_sample = get_features(train_data, TRAIN_CACHE, train_idx[0])
@@ -1047,7 +1097,7 @@ if __name__ == "__main__":
     print("Downloading Fashion-MNIST...")
     train_dataset, test_dataset = get_datasets()
 
-    # Build lists once: (tensor, int_label)
+    # Materialise dataset as plain lists of (tensor, int_label) pairs for index-based access.
     print("Loading train split into memory...")
     train_data = [(x, int(y)) for x, y in train_dataset]
     print("Loading test split into memory...")
