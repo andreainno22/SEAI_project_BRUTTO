@@ -34,13 +34,18 @@ CONFIG = {
     "TRAIN_SAMPLES": 1000,
     "VAL_SAMPLES": 500,
     "TEST_SAMPLES": 500,
-    "EPOCHS": 15,
+    # Increased due to the presence of early stoppings
+    "EPOCHS": 30,
     # NOTE: "LR" is intentionally absent; per-group learning rates (LR_HEAD, LR_QKERNEL, LR_EMBED) are used instead.
-    "WEIGHT_DECAY": 0.0,
-    "CLIP_NORM": 0.5,
-    "ACC_STEPS": 5,
+    "WEIGHT_DECAY_HEAD": 1e-3,
+    "WEIGHT_DECAY_QKERNEL": 1e-5,
+    "WEIGHT_DECAY_EMBED": 1e-5,
+    "CLIP_NORM": 1.0,
+    "ACC_STEPS": 8,
+    "EARLY_STOP_PATIENCE": 4,
     "PRINT_EVERY": 3,
     "DIAG_TRAIN_SUBSET": 500,
+    "DIAG_GRAD_SUBSET": 32,
     "E3_FALLBACK_WARN_IF_GT": 0,
     "FAIR_DIM_MATCH": True,
     "DO_DRAW": False,
@@ -51,17 +56,19 @@ CONFIG = {
     "E1NP_OMEGA_TRAINABLE": False,
     "E1NP_OMEGA_FIXED": math.pi / 2,
     # ---- Separate learning rates
-    "LR_HEAD": 1e-2,
-    "LR_QKERNEL": 1e-3,
-    "LR_EMBED": 5e-4,
+    "LR_HEAD": 1e-3,
+    "LR_QKERNEL": 3e-4,
+    "LR_EMBED": 1e-4,
     "E1_INIT_A": 0.2,
 }
 
 N_CLASSES = 10  # Fashion-MNIST: all 10 classes, no filtering applied
-N_QUBITS = 8  # Must match the number of local wires in conv8, pool8, and all QNode wire lists.
+N_QUBITS = (
+    8  # Must match the number of local wires in conv8, pool8, and all QNode wire lists.
+)
 # Local cost function: measure only the even-indexed qubits [0,2,4,6], which are the
 # CRZ targets in pool8. Reduces output from N_QUBITS to N_MEAS_QUBITS per QNode.
-N_MEAS_QUBITS = N_QUBITS // 2   # = 4
+N_MEAS_QUBITS = N_QUBITS // 2  # = 4
 MEAS_WIRES = list(range(0, N_QUBITS, 2))  # [0, 2, 4, 6]
 
 LAMBDA_FUSION = np.pi / 4
@@ -133,9 +140,9 @@ def extract_patches_2x2(X: np.ndarray) -> np.ndarray:
 def global_set_A_features(X: np.ndarray, eps: float = EPS) -> np.ndarray:
     g1 = float(X.mean())
     g2 = float(((X - g1) ** 2).mean())
-    dx = X[:, 1:] - X[:, :-1]   # (16, 15)
-    dy = X[1:, :] - X[:-1, :]   # (15, 16)
-    dx_o = dx[0:15, 0:15]        # full overlap region for 16x16
+    dx = X[:, 1:] - X[:, :-1]  # (16, 15)
+    dy = X[1:, :] - X[:-1, :]  # (15, 16)
+    dx_o = dx[0:15, 0:15]  # full overlap region for 16x16
     dy_o = dy[0:15, 0:15]
     g3 = float((dx_o**2 + dy_o**2).mean())
     H = float((dx**2).sum())
@@ -181,16 +188,19 @@ def get_features(dataset_list, cache, idx: int):
     x, y = dataset_list[idx]
     X = image_to_numpy(x)
 
-    patches = extract_patches_2x2(X)   # (64, 4)
-    means64 = patches.mean(axis=1)     # (64,)
-    quads64 = quadrants_8x8_flat(X)    # (4, 64)
-    gA4 = global_set_A_features(X)     # (4,)
+    patches = extract_patches_2x2(X)  # (64, 4)
+    means64 = patches.mean(axis=1)  # (64,)
+    quads64 = quadrants_8x8_flat(X)  # (4, 64)
+    gA4 = global_set_A_features(X)  # (4,)
 
     # 8 meta-patch means per quadrant: mean of 2 adjacent patch means
     quad_means = np.stack(
         [
             np.array(
-                [(means64[p[0]] + means64[p[1]]) * 0.5 for p in QUAD_META_PATCH_IDXS[q]],
+                [
+                    (means64[p[0]] + means64[p[1]]) * 0.5
+                    for p in QUAD_META_PATCH_IDXS[q]
+                ],
                 dtype=np.float32,
             )
             for q in range(4)
@@ -199,11 +209,11 @@ def get_features(dataset_list, cache, idx: int):
     )  # (4, 8)
 
     sample = {
-        "patches": torch.tensor(patches, dtype=torch.float32),      # (64, 4)
-        "means64": torch.tensor(means64, dtype=torch.float32),      # (64,)
-        "quad_means": torch.tensor(quad_means, dtype=torch.float32),# (4, 8)
-        "quads64": torch.tensor(quads64, dtype=torch.float32),      # (4, 64)
-        "gA4": torch.tensor(gA4, dtype=torch.float32),              # (4,)
+        "patches": torch.tensor(patches, dtype=torch.float32),  # (64, 4)
+        "means64": torch.tensor(means64, dtype=torch.float32),  # (64,)
+        "quad_means": torch.tensor(quad_means, dtype=torch.float32),  # (4, 8)
+        "quads64": torch.tensor(quads64, dtype=torch.float32),  # (4, 64)
+        "gA4": torch.tensor(gA4, dtype=torch.float32),  # (4,)
         "y": int(y),
     }
     cache[idx] = sample
@@ -294,15 +304,23 @@ def conv8(theta, wires):
     for i in range(N_QUBITS):
         qml.RY(theta[i], wires=q[i])
     # Layer 1: even-pair entanglement
-    qml.CNOT(wires=[q[0], q[1]]); qml.RZ(theta[8],  wires=q[1])
-    qml.CNOT(wires=[q[2], q[3]]); qml.RZ(theta[9],  wires=q[3])
-    qml.CNOT(wires=[q[4], q[5]]); qml.RZ(theta[10], wires=q[5])
-    qml.CNOT(wires=[q[6], q[7]]); qml.RZ(theta[11], wires=q[7])
+    qml.CNOT(wires=[q[0], q[1]])
+    qml.RZ(theta[8], wires=q[1])
+    qml.CNOT(wires=[q[2], q[3]])
+    qml.RZ(theta[9], wires=q[3])
+    qml.CNOT(wires=[q[4], q[5]])
+    qml.RZ(theta[10], wires=q[5])
+    qml.CNOT(wires=[q[6], q[7]])
+    qml.RZ(theta[11], wires=q[7])
     # Layer 2: odd-pair entanglement (shifted by one, wrapping around)
-    qml.CNOT(wires=[q[1], q[2]]); qml.RZ(theta[12], wires=q[2])
-    qml.CNOT(wires=[q[3], q[4]]); qml.RZ(theta[13], wires=q[4])
-    qml.CNOT(wires=[q[5], q[6]]); qml.RZ(theta[14], wires=q[6])
-    qml.CNOT(wires=[q[7], q[0]]); qml.RZ(theta[15], wires=q[0])
+    qml.CNOT(wires=[q[1], q[2]])
+    qml.RZ(theta[12], wires=q[2])
+    qml.CNOT(wires=[q[3], q[4]])
+    qml.RZ(theta[13], wires=q[4])
+    qml.CNOT(wires=[q[5], q[6]])
+    qml.RZ(theta[14], wires=q[6])
+    qml.CNOT(wires=[q[7], q[0]])
+    qml.RZ(theta[15], wires=q[0])
 
 
 def pool8(phi, wires):
@@ -390,7 +408,9 @@ def qnode_quadrant_E3_8(quad_amp_64, theta_conv, phi_pool):
     # normalize=True rescales to unit norm before embedding.
     # NOTE: near-zero fallback is handled OUTSIDE the QNode (in features_from_sample)
     # to preserve differentiability with lightning.qubit + adjoint differentiation.
-    qml.AmplitudeEmbedding(quad_amp_64, wires=range(N_QUBITS), pad_with=0.0, normalize=True)
+    qml.AmplitudeEmbedding(
+        quad_amp_64, wires=range(N_QUBITS), pad_with=0.0, normalize=True
+    )
     conv8(theta_conv, wires=list(range(N_QUBITS)))
     pool8(phi_pool, wires=list(range(N_QUBITS)))
     return [qml.expval(qml.PauliZ(i)) for i in MEAS_WIRES]
@@ -407,6 +427,7 @@ def qnode_quadrant_E4_8(quad_means_8, a8, c8, theta_conv, phi_pool):
 # Two separate QNodes for E1 with fixed output sizes (8 or 9 values).
 # A single QNode with a runtime-conditional output structure is incompatible
 # with lightning.qubit adjoint differentiation, which requires a static tape.
+
 
 @qml.qnode(dev9, **QNODE9_KW)
 def qnode_quadrant_E1_8(
@@ -480,22 +501,28 @@ class QuanvEmbedModel(torch.nn.Module):
         self.e4_a32 = torch.nn.Parameter(torch.ones(32, dtype=torch.float32))
         self.e4_c32 = torch.nn.Parameter(torch.zeros(32, dtype=torch.float32))
 
-        self.theta_conv = torch.nn.Parameter(torch.zeros(16, dtype=torch.float32))
-        self.phi_pool = torch.nn.Parameter(torch.zeros(8, dtype=torch.float32))
+        self.theta_conv = torch.nn.Parameter(
+            0.01 * torch.randn(16, dtype=torch.float32)
+        )
+
+        self.phi_pool = torch.nn.Parameter(0.01 * torch.randn(8, dtype=torch.float32))
 
         # E1 with fair_dim_match=False: each of 4 QNodes returns N_MEAS_QUBITS+1 values (local + global ancilla).
         # All other variants return N_MEAS_QUBITS values per quadrant.
         if self.variant == "E1" and (not self.fair_dim_match):
             out_dim = 4 * (N_MEAS_QUBITS + 1)  # = 20
         else:
-            out_dim = 4 * N_MEAS_QUBITS         # = 16
+            out_dim = 4 * N_MEAS_QUBITS  # = 16
 
         self.head = torch.nn.Sequential(
             torch.nn.LayerNorm(out_dim),
             torch.nn.Linear(out_dim, 64),
             torch.nn.GELU(),
-            torch.nn.Dropout(p=0.05),
-            torch.nn.Linear(64, N_CLASSES),
+            torch.nn.Dropout(p=0.25),
+            torch.nn.Linear(64, 32),
+            torch.nn.GELU(),
+            torch.nn.Dropout(p=0.15),
+            torch.nn.Linear(32, N_CLASSES),
         )
 
     def _quadrant_params(self, a32, c32):
@@ -516,7 +543,9 @@ class QuanvEmbedModel(torch.nn.Module):
             # Select the appropriate fixed-output QNode based on fair_dim_match.
             # Using two separate QNodes is required for adjoint compatibility with
             # lightning.qubit, which demands a statically shaped output tape.
-            _e1_qnode = qnode_quadrant_E1_8 if not include_global else qnode_quadrant_E1_9
+            _e1_qnode = (
+                qnode_quadrant_E1_8 if not include_global else qnode_quadrant_E1_9
+            )
             for q in range(4):
                 t0 = time.time()
                 out = _e1_qnode(
@@ -707,9 +736,7 @@ def draw_circuits(save: bool = True):
         plt.figure(figsize=(24, 4), facecolor="white")
         # Select the correct fixed-output QNode (8 or 9 values) based on fair_dim_match.
         _draw_e1_qnode = (
-            qnode_quadrant_E1_9
-            if not CONFIG["FAIR_DIM_MATCH"]
-            else qnode_quadrant_E1_8
+            qnode_quadrant_E1_9 if not CONFIG["FAIR_DIM_MATCH"] else qnode_quadrant_E1_8
         )
         qml.draw_mpl(_draw_e1_qnode)(
             quad_means_8,
@@ -804,12 +831,12 @@ def run_one(
         {
             "params": head_params,
             "lr": CONFIG["LR_HEAD"],
-            "weight_decay": CONFIG["WEIGHT_DECAY"],
+            "weight_decay": CONFIG["WEIGHT_DECAY_HEAD"],
         },
         {
             "params": qkernel_params,
             "lr": CONFIG["LR_QKERNEL"],
-            "weight_decay": CONFIG["WEIGHT_DECAY"],
+            "weight_decay": CONFIG["WEIGHT_DECAY_QKERNEL"],
         },
     ]
     if len(embed_params) > 0:
@@ -817,19 +844,32 @@ def run_one(
             {
                 "params": embed_params,
                 "lr": CONFIG["LR_EMBED"],
-                "weight_decay": CONFIG["WEIGHT_DECAY"],
+                "weight_decay": CONFIG["WEIGHT_DECAY_EMBED"],
             }
         )
 
-    opt = torch.optim.Adam(param_groups)
+    opt = torch.optim.AdamW(param_groups)
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        opt,
+        mode="min",
+        factor=0.5,
+        patience=2,
+        min_lr=1e-6,
+    )
 
     rows = []
     acc_steps = max(1, int(CONFIG["ACC_STEPS"]))
 
+    best_val_loss = float("inf")
+    best_state = None
+    patience_counter = 0
+
     for ep in range(1, CONFIG["EPOCHS"] + 1):
         t_ep = time.time()
         model.train()
-        random.shuffle(train_idx)
+        epoch_train_idx = train_idx[:]
+        random.shuffle(epoch_train_idx)
 
         qtime_train = 0.0
         total_loss = 0.0
@@ -838,7 +878,7 @@ def run_one(
         opt.zero_grad()
         step_in_acc = 0
 
-        for idx in train_idx:
+        for idx in epoch_train_idx:
             sample = get_features(train_data, TRAIN_CACHE, idx)
             logits, _, qsec, e3_fb = model(sample)
 
@@ -870,17 +910,42 @@ def run_one(
         # Diagnostic backward pass on a single sample to compute per-group gradient norms.
         model.train()
         opt.zero_grad()
-        diag_sample = get_features(train_data, TRAIN_CACHE, train_idx[0])
-        diag_logits, _, _, _ = model(diag_sample)
-        diag_y = torch.tensor([diag_sample["y"]], dtype=torch.long)
-        diag_loss = ce_loss(diag_logits.view(1, -1), diag_y)
+
+        diag_indices = train_idx[: min(CONFIG["DIAG_GRAD_SUBSET"], len(train_idx))]
+
+        diag_loss = 0.0
+
+        for d_idx in diag_indices:
+            diag_sample = get_features(
+                train_data,
+                TRAIN_CACHE,
+                d_idx,
+            )
+
+            diag_logits, _, _, _ = model(diag_sample)
+
+            diag_y = torch.tensor(
+                [diag_sample["y"]],
+                dtype=torch.long,
+            )
+
+            diag_loss += ce_loss(
+                diag_logits.view(1, -1),
+                diag_y,
+            )
+
+        diag_loss = diag_loss / len(diag_indices)
+
         diag_loss.backward()
+
         gnorms = group_grad_norms(model)
+
         opt.zero_grad()
 
         diag_tr_idx = train_idx[: min(CONFIG["DIAG_TRAIN_SUBSET"], len(train_idx))]
         tr = eval_subset(model, train_data, TRAIN_CACHE, diag_tr_idx)
         va = eval_subset(model, train_data, TRAIN_CACHE, val_idx)
+        scheduler.step(va["loss"])
         te = eval_subset(model, test_data, TEST_CACHE, test_idx)
 
         cm_test = confusion_matrix(te["y_true"], te["y_pred"], N_CLASSES)
@@ -915,6 +980,17 @@ def run_one(
             **gnorms,
         }
         rows.append(row)
+        if va["loss"] < best_val_loss:
+            best_val_loss = va["loss"]
+
+            best_state = {
+                k: v.detach().cpu().clone() for k, v in model.state_dict().items()
+            }
+
+            patience_counter = 0
+
+        else:
+            patience_counter += 1
 
         if (ep == 1) or (ep % CONFIG["PRINT_EVERY"] == 0) or (ep == CONFIG["EPOCHS"]):
             warn_e3 = ""
@@ -933,6 +1009,13 @@ def run_one(
                 f"grad(qkern)={row['grad_qkernel']:.2e} grad(head)={row['grad_head']:.2e}"
                 f"{warn_e3}"
             )
+            if patience_counter >= CONFIG["EARLY_STOP_PATIENCE"]:
+                print(f"  Early stopping triggered at epoch {ep}")
+
+                break
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
 
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(out_dir, "metrics.csv"), index=False)
@@ -1008,10 +1091,18 @@ def run_all(train_data, test_data):
     finals_df.to_csv(os.path.join(BASE_DIR, "ALL_final_eval.csv"), index=False)
 
     summary_cols = [
-        "val_acc", "val_loss", "val_gap",
-        "test_acc", "test_loss", "test_gap",
-        "sec_epoch", "sec_quantum_train", "sec_quantum_val", "sec_quantum_test",
-        "nparams_trainable", "e3_fb_test",
+        "val_acc",
+        "val_loss",
+        "val_gap",
+        "test_acc",
+        "test_loss",
+        "test_gap",
+        "sec_epoch",
+        "sec_quantum_train",
+        "sec_quantum_val",
+        "sec_quantum_test",
+        "nparams_trainable",
+        "e3_fb_test",
     ]
     summary = (
         finals_df.groupby("variant")[summary_cols].agg(["mean", "std"]).reset_index()
@@ -1126,15 +1217,21 @@ if __name__ == "__main__":
     print(summary_view)
 
     plot_mean_std_curves(
-        metrics_df, "train_acc_diag", "Train accuracy (diag) mean±std",
+        metrics_df,
+        "train_acc_diag",
+        "Train accuracy (diag) mean±std",
         fname="curve_train_acc_diag.png",
     )
     plot_mean_std_curves(
-        metrics_df, "train_loss_diag", "Train loss (diag) mean±std",
+        metrics_df,
+        "train_loss_diag",
+        "Train loss (diag) mean±std",
         fname="curve_train_loss_diag.png",
     )
     plot_mean_std_curves(
-        metrics_df, "train_gap_diag", "Train confidence gap (diag) mean±std",
+        metrics_df,
+        "train_gap_diag",
+        "Train confidence gap (diag) mean±std",
         fname="curve_train_gap_diag.png",
     )
     plot_mean_std_curves(
@@ -1147,15 +1244,21 @@ if __name__ == "__main__":
         metrics_df, "val_gap", "Val confidence gap mean±std", fname="curve_val_gap.png"
     )
     plot_mean_std_curves(
-        metrics_df, "test_acc", "Test accuracy mean±std (subset)",
+        metrics_df,
+        "test_acc",
+        "Test accuracy mean±std (subset)",
         fname="curve_test_acc.png",
     )
     plot_mean_std_curves(
-        metrics_df, "test_loss", "Test loss mean±std (subset)",
+        metrics_df,
+        "test_loss",
+        "Test loss mean±std (subset)",
         fname="curve_test_loss.png",
     )
     plot_mean_std_curves(
-        metrics_df, "test_gap", "Test confidence gap mean±std (subset)",
+        metrics_df,
+        "test_gap",
+        "Test confidence gap mean±std (subset)",
         fname="curve_test_gap.png",
     )
 
