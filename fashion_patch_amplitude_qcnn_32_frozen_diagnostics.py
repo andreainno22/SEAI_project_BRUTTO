@@ -330,8 +330,9 @@ class PatchAmplitudeQCNN(torch.nn.Module):
         super().__init__()
 
         # QCNN parameters shared across the four 16x16 patches.
-        self.theta_conv = torch.nn.Parameter(torch.zeros(16, dtype=torch.float32))
-        self.phi_pool = torch.nn.Parameter(torch.zeros(8, dtype=torch.float32))
+        # Inizializziamo con valori leggermente casuali e piccolissimi per rompere la simmetria (evitare gradienti a zero)
+        self.theta_conv = torch.nn.Parameter(1e-3 * torch.randn(16, dtype=torch.float32))
+        self.phi_pool = torch.nn.Parameter(1e-3 * torch.randn(8, dtype=torch.float32))
 
         # Simplified classical head: 4 patches x 4 quantum features = 16 input features.
         # This keeps the readout intentionally small, so good performance is less
@@ -563,7 +564,7 @@ def train_one_run(run_name: str, freeze_qcnn: bool, seed: int, train_data, test_
     print("\n" + "=" * 90)
     print(f"RUN={run_name} | seed={seed} | freeze_qcnn={freeze_qcnn}")
     print(f"Quantum device: {dev8_name} ({diff8})")
-    print("Input: 28x28 -> black padding -> 32x32 -> four 16x16 patches")
+    print("Input: 28x28 -> resized to 32x32 -> four 16x16 patches")
     print("Encoding: amplitude encoding on each 16x16 patch")
     print("Convolution structure: 4 patch QNode calls per image, shared QCNN parameters")
     print(f"Classical head: LayerNorm({HEAD_IN_DIM}) + Linear({HEAD_IN_DIM} -> 10)")
