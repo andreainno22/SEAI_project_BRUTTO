@@ -24,6 +24,18 @@ linear classifier.
 """
 
 import os
+
+# --- FORZATURA CPU: impedisce a qualsiasi libreria (PyTorch, TF, JAX, ecc.) di vedere o usare le GPU ---
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+# -------------------------------------------------------------------------------------------------------
+
+# --- OTTIMIZZAZIONE PARALLELIZZAZIONE CPU ---
+# Assegna a OpenMP (usato da PennyLane lightning.qubit) tutti i core fisici disponibili
+if "OMP_NUM_THREADS" not in os.environ:
+    cores = os.cpu_count() or 4
+    os.environ["OMP_NUM_THREADS"] = str(cores)
+# --------------------------------------------
+
 import json
 import time
 import random
@@ -53,11 +65,11 @@ CONFIG = {
         {"run_name": "trainable_qcnn", "freeze_qcnn": False},
         {"run_name": "frozen_qcnn", "freeze_qcnn": True},
     ],
-    "TRAIN_SAMPLES": 1000,
-    "VAL_SAMPLES": 400,
-    "TEST_SAMPLES": 200,
-    "EPOCHS": 7,
-    "ACC_STEPS": 8,
+    "TRAIN_SAMPLES": 10000,
+    "VAL_SAMPLES": 2000,
+    "TEST_SAMPLES": 2000,
+    "EPOCHS": 15,
+    "BATCH_SIZE": 128,
     "EARLY_STOP_PATIENCE": 5,
     "PRINT_EVERY": 1,
     "LR_HEAD": 1e-3,
@@ -98,7 +110,7 @@ def set_global_seed(seed: int) -> None:
 # on each side to obtain 32x32 images. Then each image is split into four
 # 16x16 patches.
 transform = transforms.Compose([
-    transforms.Pad(padding=2, fill=0),
+    transforms.Resize((32, 32)),
     transforms.ToTensor(),
 ])
 
@@ -225,15 +237,29 @@ def get_features(dataset_list, cache: Dict[int, Dict[str, torch.Tensor]], idx: i
     return sample
 
 
+class QCNNDataset(torch.utils.data.Dataset):
+    def __init__(self, dataset_list, cache):
+        self.dataset_list = dataset_list
+        self.cache = cache
+
+    def __len__(self):
+        return len(self.dataset_list)
+
+    def __getitem__(self, idx):
+        return get_features(self.dataset_list, self.cache, idx)
+
+
 # ============================================================
 # Quantum device
 # ============================================================
 
 def make_device(n_wires: int):
     try:
+        # lightning.qubit è il simulatore basato su CPU. (lightning.gpu userebbe la GPU).
         dev = qml.device("lightning.qubit", wires=n_wires)
         return dev, "lightning.qubit", "adjoint"
     except Exception:
+        # default.qubit è il simulatore standard di PennyLane, interamente su CPU.
         dev = qml.device("default.qubit", wires=n_wires)
         return dev, "default.qubit", "backprop"
 
@@ -304,8 +330,8 @@ class PatchAmplitudeQCNN(torch.nn.Module):
         super().__init__()
 
         # QCNN parameters shared across the four 16x16 patches.
-        self.theta_conv = torch.nn.Parameter(0.01 * torch.randn(16, dtype=torch.float32))
-        self.phi_pool = torch.nn.Parameter(0.01 * torch.randn(8, dtype=torch.float32))
+        self.theta_conv = torch.nn.Parameter(torch.zeros(16, dtype=torch.float32))
+        self.phi_pool = torch.nn.Parameter(torch.zeros(8, dtype=torch.float32))
 
         # Simplified classical head: 4 patches x 4 quantum features = 16 input features.
         # This keeps the readout intentionally small, so good performance is less
@@ -318,16 +344,19 @@ class PatchAmplitudeQCNN(torch.nn.Module):
     def quantum_features(self, sample: Dict[str, torch.Tensor]) -> torch.Tensor:
         patch_features = []
         amp4x256 = sample["amp4x256"]
+        
+        if amp4x256.dim() == 2:
+            amp4x256 = amp4x256.unsqueeze(0)
 
         for p in range(N_PATCHES):
             out = patch_amplitude_qnode(
-                amp4x256[p],
+                amp4x256[:, p, :],
                 self.theta_conv,
                 self.phi_pool,
             )
-            patch_features.append(torch.stack(out).to(dtype=torch.float32))
+            patch_features.append(torch.stack(out, dim=1).to(dtype=torch.float32))
 
-        return torch.cat(patch_features, dim=0)  # 4 x 4 = 16 features
+        return torch.cat(patch_features, dim=1)  # B x 16 features
 
     def forward(self, sample: Dict[str, torch.Tensor]):
         features = self.quantum_features(sample)
@@ -439,29 +468,35 @@ def evaluate(model, dataset_list, cache, indices, with_feature_diagnostics: bool
     features_list = []
     labels_list = []
 
-    for idx in indices:
-        sample = get_features(dataset_list, cache, idx)
-        logits, features = model(sample)
-        y = torch.tensor([sample["y"]], dtype=torch.long)
-        loss = ce_loss(logits.view(1, -1), y)
+    subset = torch.utils.data.Subset(QCNNDataset(dataset_list, cache), indices)
+    
+    # Ripristinato num_workers=0: su Windows il multiprocessing (spawn) distrugge la logica
+    # della cache globale, svuotandola ogni volta e creando un overhead enorme, specialmente in evaluate!
+    loader = torch.utils.data.DataLoader(subset, batch_size=CONFIG.get("BATCH_SIZE", 32), shuffle=False)
 
-        pred = int(torch.argmax(logits).item())
-        correct += int(pred == sample["y"])
-        total += 1
-        losses.append(float(loss.item()))
+    for batch in loader:
+        logits, features = model(batch)
+        y = batch["y"]
+        loss = ce_loss(logits, y)
+
+        preds = torch.argmax(logits, dim=1)
+        correct += int((preds == y).sum().item())
+        total += len(y)
+        # Salva la loss ponderata per la grandezza del batch (evita errori semantici sull'ultimo batch)
+        losses.append(float(loss.item()) * len(y))
 
         if with_feature_diagnostics:
             features_list.append(features.detach().cpu().numpy())
-            labels_list.append(sample["y"])
+            labels_list.append(y.cpu().numpy())
 
     metrics = {
-        "loss": float(np.mean(losses)) if losses else 0.0,
+        "loss": float(np.sum(losses) / total) if total else 0.0,
         "acc": float(correct / total) if total else 0.0,
     }
 
     if with_feature_diagnostics:
-        F = np.stack(features_list, axis=0) if features_list else np.empty((0, HEAD_IN_DIM))
-        y = np.array(labels_list, dtype=np.int64)
+        F = np.concatenate(features_list, axis=0) if features_list else np.empty((0, HEAD_IN_DIM))
+        y = np.concatenate(labels_list, axis=0) if labels_list else np.empty((0,), dtype=np.int64)
         metrics.update(feature_separability_diagnostics(F, y))
 
     return metrics
@@ -539,46 +574,29 @@ def train_one_run(run_name: str, freeze_qcnn: bool, seed: int, train_data, test_
     best_val_loss = float("inf")
     best_state = None
     patience = 0
-    acc_steps = max(1, int(CONFIG["ACC_STEPS"]))
+    
+    train_subset = torch.utils.data.Subset(QCNNDataset(train_data, TRAIN_CACHE), train_idx)
+    
+    train_loader = torch.utils.data.DataLoader(train_subset, batch_size=CONFIG.get("BATCH_SIZE", 32), shuffle=True)
 
     for epoch in range(1, CONFIG["EPOCHS"] + 1):
         t0 = time.time()
         model.train()
-        random.shuffle(train_idx)
 
         running_loss = 0.0
         grad_qkernel_values = []
         grad_head_values = []
         grad_ratio_values = []
 
-        optimizer.zero_grad()
-        step_in_acc = 0
+        for batch in train_loader:
+            optimizer.zero_grad()
+            logits, _ = model(batch)
+            y = batch["y"]
+            loss = ce_loss(logits, y)
 
-        for idx in train_idx:
-            sample = get_features(train_data, TRAIN_CACHE, idx)
-            logits, _ = model(sample)
-            y = torch.tensor([sample["y"]], dtype=torch.long)
-            loss = ce_loss(logits.view(1, -1), y)
+            loss.backward()
+            running_loss += float(loss.item()) * len(y)
 
-            (loss / acc_steps).backward()
-            running_loss += float(loss.item())
-            step_in_acc += 1
-
-            if step_in_acc == acc_steps:
-                norms = model_grad_norms(model)
-                grad_qkernel_values.append(norms["grad_qkernel"])
-                grad_head_values.append(norms["grad_head"])
-                grad_ratio_values.append(norms["grad_qkernel_over_head"])
-
-                torch.nn.utils.clip_grad_norm_(
-                    [p for p in model.parameters() if p.requires_grad],
-                    CONFIG["CLIP_NORM"],
-                )
-                optimizer.step()
-                optimizer.zero_grad()
-                step_in_acc = 0
-
-        if step_in_acc != 0:
             norms = model_grad_norms(model)
             grad_qkernel_values.append(norms["grad_qkernel"])
             grad_head_values.append(norms["grad_head"])
@@ -589,7 +607,6 @@ def train_one_run(run_name: str, freeze_qcnn: bool, seed: int, train_data, test_
                 CONFIG["CLIP_NORM"],
             )
             optimizer.step()
-            optimizer.zero_grad()
 
         train_loss = running_loss / max(1, len(train_idx))
 
