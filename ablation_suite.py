@@ -89,8 +89,9 @@ def extract_features(X: np.ndarray) -> dict:
     norm_angles = np.array([np.pi * n / total for n in raw_norms], dtype=np.float32)
     amp4x256    = np.stack(amps, axis=0)    # (4, 256)
 
-    # --- Strip means per patch (E1 / E4) ---
+    # --- Strip means per patch (E1 encoding only) ---
     # Each 16×16 patch is split into 8 horizontal strips of 2×16 pixels.
+    # The 8 strip means feed the 8 local-wire RY rotations of the E1 ansatz.
     quad_means_list = []
     for patch in patches:
         strips = [patch[r * 2:(r + 1) * 2, :].mean() for r in range(8)]
@@ -98,11 +99,15 @@ def extract_features(X: np.ndarray) -> dict:
     quad_means = np.stack(quad_means_list, axis=0)   # (4, 8)
 
     # --- Global statistics gA4 (over the whole 32×32 image) ---
+    # g3 is the mean squared gradient magnitude on the overlap region where
+    # both dx and dy are defined (kept consistent with the legacy formula).
     g1 = float(X.mean())
     g2 = float(((X - g1) ** 2).mean())
-    dx = X[:, 1:] - X[:, :-1]
-    dy = X[1:, :] - X[:-1, :]
-    g3 = float((dx ** 2).mean() + (dy ** 2).mean())
+    dx = X[:, 1:] - X[:, :-1]    # (32, 31)
+    dy = X[1:, :] - X[:-1, :]    # (31, 32)
+    dx_o = dx[0:31, 0:31]
+    dy_o = dy[0:31, 0:31]
+    g3 = float((dx_o ** 2 + dy_o ** 2).mean())
     H  = float((dx ** 2).sum())
     V  = float((dy ** 2).sum())
     g4 = float((V - H) / (V + H + EPS))
@@ -235,8 +240,12 @@ def build_optimizer(model: DynamicQCNN, config: dict) -> torch.optim.Optimizer:
 
 @torch.no_grad()
 def evaluate(model: DynamicQCNN, loader: DataLoader,
-             ce_loss: torch.nn.Module) -> tuple:
-    """Return (mean_loss, accuracy) on the given loader."""
+             loss_fn: torch.nn.Module) -> tuple:
+    """Return (mean_loss, accuracy) on the given loader.
+
+    `loss_fn` should be a plain CrossEntropyLoss (no label smoothing) so that
+    val/test losses stay comparable across ablation runs and to the literature.
+    """
     model.eval()
     total_loss = 0.0
     correct    = 0
@@ -245,7 +254,7 @@ def evaluate(model: DynamicQCNN, loader: DataLoader,
     for batch in loader:
         logits, _ = model(batch)
         y         = batch["y"]
-        loss      = ce_loss(logits, y)
+        loss      = loss_fn(logits, y)
         preds     = logits.argmax(dim=1)
 
         total_loss += loss.item() * len(y)
@@ -276,7 +285,7 @@ def run_test(test_name: str, config: dict,
     print(f"TEST: {test_name}")
     print(f"  Encoding   : {config['ENCODING']}")
     print(f"  Ansatz     : {config['ANSATZ_TYPE']}")
-    print(f"  Readout    : {config['READOUT']}")
+    print(f"  Readout    : {config['READOUT']}  (wires={config.get('READOUT_WIRES', 'kept')})")
     print(f"  Trainable  : {config['QCNN_TRAINABLE']}")
     print(f"  InjectNorm : {config['INJECT_NORM']}")
     if overrides:
@@ -316,7 +325,11 @@ def run_test(test_name: str, config: dict,
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         optimizer, T_0=max(1, config["EPOCHS"] // 3), T_mult=1, eta_min=1e-6
     )
-    ce_loss   = torch.nn.CrossEntropyLoss(label_smoothing=config["LABEL_SMOOTHING"])
+    # Training loss uses label smoothing as a regulariser; evaluation uses the
+    # plain cross-entropy so val/test losses stay comparable across ablation
+    # runs and to external baselines.
+    train_loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=config["LABEL_SMOOTHING"])
+    eval_loss_fn  = torch.nn.CrossEntropyLoss()
 
     # Output directory
     out_dir = os.path.join("ablation_results", test_name)
@@ -332,6 +345,13 @@ def run_test(test_name: str, config: dict,
     best_ckpt     = os.path.join(out_dir, "best_model.pt")
     rows          = []
 
+    # Remove a stale checkpoint from a previous run: if the architecture changed
+    # (e.g. READOUT Z -> Z_ZZ, or ANSATZ_TYPE), the old state_dict shapes won't
+    # match and load_state_dict at the end of training would fail or — worse —
+    # partially load incompatible weights.
+    if os.path.exists(best_ckpt):
+        os.remove(best_ckpt)
+
     for epoch in range(1, config["EPOCHS"] + 1):
         t0           = time.time()
         model.train()
@@ -341,7 +361,7 @@ def run_test(test_name: str, config: dict,
             optimizer.zero_grad()
             logits, _ = model(batch)
             y         = batch["y"]
-            loss      = ce_loss(logits, y)
+            loss      = train_loss_fn(logits, y)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(
                 [p for p in model.parameters() if p.requires_grad],
@@ -351,7 +371,7 @@ def run_test(test_name: str, config: dict,
             running_loss += loss.item() * len(y)
 
         train_loss          = running_loss / max(1, len(train_idx))
-        val_loss, val_acc   = evaluate(model, val_loader, ce_loss)
+        val_loss, val_acc   = evaluate(model, val_loader, eval_loss_fn)
         epoch_sec           = time.time() - t0
         scheduler.step()
 
@@ -387,7 +407,7 @@ def run_test(test_name: str, config: dict,
             torch.load(best_ckpt, weights_only=True)
         )
 
-    test_loss, test_acc = evaluate(model, test_loader, ce_loss)
+    test_loss, test_acc = evaluate(model, test_loader, eval_loss_fn)
     print(f"  → test_acc={test_acc:.4f}  test_loss={test_loss:.4f}")
 
     # Save per-epoch metrics
@@ -445,6 +465,9 @@ if __name__ == "__main__":
     train_dataset = UnifiedDataset(raw_train)
     test_dataset  = UnifiedDataset(raw_test)
 
+    os.makedirs("ablation_results", exist_ok=True)
+    out_path = os.path.join("ablation_results", "final_comparison.csv")
+
     results = []
 
     for tname in tests_to_run:
@@ -452,11 +475,10 @@ if __name__ == "__main__":
         result = run_test(tname, cfg, train_dataset, test_dataset, seed=42)
         results.append(result)
 
-    # Final comparison table
-    res_df = pd.DataFrame(results).sort_values("final_test_acc", ascending=False)
-    os.makedirs("ablation_results", exist_ok=True)
-    out_path = os.path.join("ablation_results", "final_comparison.csv")
-    res_df.to_csv(out_path, index=False)
+        # Write after every test so a crash doesn't lose completed runs.
+        res_df = pd.DataFrame(results).sort_values("final_test_acc", ascending=False)
+        res_df.to_csv(out_path, index=False)
+        print(f"[checkpoint] {tname} done — results saved to {out_path}")
 
     print(f"\n{'='*60}")
     print("FINAL ABLATION RESULTS (sorted by test accuracy)")

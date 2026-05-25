@@ -2,9 +2,10 @@
 test_suite_config.py — Configuration for the QCNN ablation test suite.
 
 BASELINE_CONFIG defines the "best known" configuration (the SOTA baseline
-derived from v2.3 with amplitude encoding). Each entry in ABLATION_TESTS is
-a dict of key overrides applied on top of the baseline — only the keys that
-differ from the baseline need to be specified.
+derived from v2.2 — see Latest/CHANGES_v2.md — with amplitude encoding,
+v2_deep ansatz, Z+ZZ readout, trainable quantum kernel). Each entry in
+ABLATION_TESTS is a dict of key overrides applied on top of the baseline —
+only the keys that differ from the baseline need to be specified.
 
 To add a new test, add an entry to ABLATION_TESTS:
     "my_new_test": {"KEY_TO_OVERRIDE": new_value, ...}
@@ -16,7 +17,7 @@ To run a specific test from the command line:
 import math
 
 # ---------------------------------------------------------------------------
-# Baseline configuration — mirrors v2.3 (amplitude, v2_deep, Z+ZZ, trainable)
+# Baseline configuration — mirrors v2.2 (amplitude, v2_deep, Z+ZZ, trainable)
 # ---------------------------------------------------------------------------
 BASELINE_CONFIG = {
     # --- Data ---
@@ -43,10 +44,10 @@ BASELINE_CONFIG = {
     "LABEL_SMOOTHING":     0.1,    # Prevents overconfident logits (T9)
 
     # --- Quantum architecture ---
-    "ENCODING":    "amplitude",    # "amplitude" | "E1"
-    "INJECT_NORM": True,           # Amplitude only: inject patch L2 norm via RY on wire 0 (C9)
-    "ANSATZ_TYPE": "v2_deep",      # "v2_deep" | "qfix_shallow" | "flat_no_pool"
-    "READOUT":     "Z_ZZ",         # "Z" | "Z_ZZ"
+    "ENCODING":      "amplitude",  # "amplitude" | "E1"
+    "INJECT_NORM":   True,         # Amplitude only: inject patch L2 norm via RY on wire 0 (C9)
+    "ANSATZ_TYPE":   "v2_deep",    # "v2_deep" | "qfix_shallow" | "flat_no_pool"
+    "READOUT":       "Z_ZZ",       # "Z" | "Z_ZZ"
     "QCNN_TRAINABLE": True,        # True = end-to-end, False = frozen quantum params
 
     # --- Initialisation ---
@@ -76,13 +77,6 @@ ABLATION_TESTS = {
     # on wires 0-7 using a trainable affine mapping, plus 4 global image statistics
     # on a 9th ancilla wire. The global ancilla is fused into the local wires via
     # CNOT-RZ-CNOT gates before the ansatz.
-
-    "test_amplitude_no_norm": {
-        "ENCODING":    "amplitude",
-        "INJECT_NORM": False,
-    },
-    # Tests whether the norm-injection RY on wire 0 (C9) actually recovers
-    # the inter-patch contrast lost by per-patch unit normalisation.
 
     # 2. Readout axis --------------------------------------------------------
     "test_readout_Z_only": {
@@ -122,6 +116,9 @@ def get_config(test_name: str) -> dict:
     """Return the full config for `test_name` (baseline + overrides).
 
     Raises ValueError if `test_name` is not in ABLATION_TESTS.
+
+    Post-merge normalisation: INJECT_NORM is amplitude-only — for any non-amplitude
+    encoding the flag is forced to False so prints/logs reflect what actually runs.
     """
     if test_name not in ABLATION_TESTS:
         raise ValueError(
@@ -130,4 +127,8 @@ def get_config(test_name: str) -> dict:
         )
     cfg = BASELINE_CONFIG.copy()
     cfg.update(ABLATION_TESTS[test_name])
+
+    if cfg.get("ENCODING") != "amplitude":
+        cfg["INJECT_NORM"] = False
+
     return cfg
