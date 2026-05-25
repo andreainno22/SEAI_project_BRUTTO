@@ -21,13 +21,13 @@ import math
 # ---------------------------------------------------------------------------
 BASELINE_CONFIG = {
     # --- Data ---
-    "TRAIN_SAMPLES":        2000,   # Reduced for fast ablation sweeps; increase for full runs
-    "VAL_SAMPLES":           500,
-    "TEST_SAMPLES":          500,
+    "TRAIN_SAMPLES":        10000,   # Reduced for fast ablation sweeps; increase for full runs
+    "VAL_SAMPLES":           2500,
+    "TEST_SAMPLES":          2500,
     "BATCH_SIZE":            128,
 
     # --- Training ---
-    "EPOCHS":                 20,   # Reduced for ablation; use 120 for production runs
+    "EPOCHS":                 120,   # Reduced for ablation; use 120 for production runs
     "EARLY_STOP_PATIENCE":    10,
     "PRINT_EVERY":             5,
 

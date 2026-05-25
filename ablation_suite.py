@@ -285,7 +285,7 @@ def run_test(test_name: str, config: dict,
     print(f"TEST: {test_name}")
     print(f"  Encoding   : {config['ENCODING']}")
     print(f"  Ansatz     : {config['ANSATZ_TYPE']}")
-    print(f"  Readout    : {config['READOUT']}  (wires={config.get('READOUT_WIRES', 'kept')})")
+    print(f"  Readout    : {config['READOUT']}")
     print(f"  Trainable  : {config['QCNN_TRAINABLE']}")
     print(f"  InjectNorm : {config['INJECT_NORM']}")
     if overrides:
