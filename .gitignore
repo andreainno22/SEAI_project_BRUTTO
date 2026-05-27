@@ -2,3 +2,4 @@
 !*.py
 !*.ipynb
 __pycache__/
+data/*

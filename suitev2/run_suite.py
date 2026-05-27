@@ -1,5 +1,5 @@
-"""
-run_suite.py — Entry point: loops over (ansatz, encoding, seed).
+﻿"""
+run_suite.py â€” Entry point: loops over (ansatz, encoding, seed).
 
 Writes one row to results/summary.csv IMMEDIATELY at the end of each run
 (not in batch at the end of the suite). If the suite crashes halfway,
@@ -10,10 +10,10 @@ flattened, so the matrix can be reconstructed offline without re-reading
 the per-run test.json files.
 
 Usage examples:
-  python -m fashion_suite.run_suite                          # full suite
-  python -m fashion_suite.run_suite --combo hur8_e3          # one combo
-  python -m fashion_suite.run_suite --ansatz hur8 --encoding e3 --seeds 42
-  python -m fashion_suite.run_suite --epochs 1 --train-per-class 50   # smoke
+  python -m suitev2.run_suite                          # full suite
+  python -m suitev2.run_suite --combo hur8_e3          # one combo
+  python -m suitev2.run_suite --ansatz hur8 --encoding e3 --seeds 42
+  python -m suitev2.run_suite --epochs 1 --train-per-class 50   # smoke
 """
 
 import argparse
@@ -24,13 +24,13 @@ import sys
 import time
 from datetime import datetime
 
-from fashion_suite.config import (
+from suitev2.config import (
     SUITE_SEEDS,
     all_combos,
     combo_is_runnable,
     populate_registries,
 )
-from fashion_suite.train import train_one_run
+from suitev2.train import train_one_run
 
 
 SUMMARY_HEADER = (
@@ -184,7 +184,7 @@ def main():
                 json.dump(result, f, indent=2)
 
             # 2. Summary row appended IMMEDIATELY (single source of truth for
-            #    post-processing — contains the full 4x4 confusion matrix).
+            #    post-processing â€” contains the full 4x4 confusion matrix).
             append_summary_row(summary_path, result)
 
             completed += 1
@@ -208,3 +208,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

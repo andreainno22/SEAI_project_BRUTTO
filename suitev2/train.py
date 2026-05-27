@@ -1,5 +1,5 @@
-"""
-train.py — Loss, metrics, per-run training, training extension.
+﻿"""
+train.py â€” Loss, metrics, per-run training, training extension.
 
 Each run saves:
   - config.json   : run hyperparameters
@@ -25,9 +25,9 @@ import time
 import numpy as np
 import torch
 
-from fashion_suite.config import BASELINE
-from fashion_suite.data import load_data, load_test_extension
-from fashion_suite.model import FashionQCNN
+from suitev2.config import BASELINE
+from suitev2.data import load_data, load_test_extension
+from suitev2.model import FashionQCNN
 
 
 # ============================================================
@@ -46,14 +46,35 @@ def set_seed(seed: int):
 # Loss + metrics
 # ============================================================
 
-def probability_cross_entropy_loss(probs, labels, eps=1e-8):
-    """Cross-entropy directly on measurement probabilities (pulito86 baseline)."""
-    probs = torch.clamp(probs, min=eps, max=1.0)
-    true_probs = probs[
-        torch.arange(probs.shape[0], device=probs.device),
-        labels,
-    ]
-    return -torch.log(true_probs).mean()
+def probability_cross_entropy_loss(probs, labels, eps=1e-8, label_smoothing=0.0):
+    """Cross-entropy directly on measurement probabilities (pulito86 baseline).
+
+    Label smoothing follows the standard formulation (Szegedy et al. 2016):
+
+        L = (1 - epsilon) * NLL(y_true) + epsilon * H_uniform(p)
+
+    where H_uniform(p) = -1/K * sum_j log(p_j) is the cross-entropy with the
+    uniform distribution.  This penalises overconfident predictions on ALL
+    classes, not only the correct one.
+
+    Note: unlike a common (incorrect) shortcut that smooths the probability
+    values before taking log, this formulation operates on log_probs directly,
+    which is mathematically equivalent to the one-hot soft-target form.
+    """
+    probs    = torch.clamp(probs, min=eps, max=1.0)
+    log_probs = torch.log(probs)
+    B        = probs.shape[0]
+
+    # NLL on the correct class
+    nll = -log_probs[torch.arange(B, device=probs.device), labels]
+
+    if label_smoothing > 0.0:
+        n_classes   = probs.shape[1]
+        # Uniform entropy term: -sum_j log(p_j) / K
+        smooth_loss = -log_probs.sum(dim=1) / n_classes
+        return ((1.0 - label_smoothing) * nll + label_smoothing * smooth_loss).mean()
+
+    return nll.mean()
 
 
 def accuracy(probs, labels):
@@ -67,6 +88,54 @@ def grad_norm(model) -> float:
         if p.grad is not None:
             total += p.grad.detach().pow(2).sum().item()
     return total ** 0.5
+
+
+# ============================================================
+# Optimizer factory
+# ============================================================
+
+def build_optimizer(model) -> torch.optim.Optimizer:
+    """Return an AdamW optimiser with per-group learning rates.
+
+    Parameter groups:
+      - quantum kernel (theta_conv1/2, theta_pool1/2): LR_QKERNEL / WD_QKERNEL.
+        These are the circuit rotation angles; they respond well to a standard
+        LR in the 1e-3 range.
+      - encoding params (a_embed, c_embed for E1; theta_enc for custom):
+        LR_EMBED / WD_EMBED.  A lower LR prevents the affine slopes from
+        diverging before the circuit params have had time to adapt.
+    """
+    # Quantum kernel parameters (always present)
+    qkernel_params = [
+        model.theta_conv1, model.theta_pool1,
+        model.theta_conv2, model.theta_pool2,
+    ]
+    groups = [
+        {
+            "params":       [p for p in qkernel_params if p.requires_grad],
+            "lr":           BASELINE.LR_QKERNEL,
+            "weight_decay": BASELINE.WD_QKERNEL,
+        }
+    ]
+
+    # Encoding parameters (E1 or custom; absent for E3)
+    embed_params = []
+    if getattr(model, "a_embed", None) is not None:
+        embed_params.append(model.a_embed)
+    if getattr(model, "c_embed", None) is not None:
+        embed_params.append(model.c_embed)
+    if getattr(model, "theta_enc", None) is not None:
+        embed_params.append(model.theta_enc)
+    if embed_params:
+        groups.append(
+            {
+                "params":       embed_params,
+                "lr":           BASELINE.LR_EMBED,
+                "weight_decay": BASELINE.WD_EMBED,
+            }
+        )
+
+    return torch.optim.AdamW(groups)
 
 
 def confusion_matrix(model, loader, device, n_classes=BASELINE.N_CLASSES):
@@ -111,10 +180,11 @@ def run_epoch(model, loader, device, optimizer=None):
             optimizer.zero_grad()
 
         probs = model(x_flat, quad_means_8=qm8, gA4=gA4)
-        loss = probability_cross_entropy_loss(probs, y)
+        loss = probability_cross_entropy_loss(probs, y, label_smoothing=BASELINE.LABEL_SMOOTHING if is_train else 0.0)
 
         if is_train:
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             total_grad_norm += grad_norm(model)
             n_batches += 1
             optimizer.step()
@@ -137,7 +207,7 @@ def run_epoch(model, loader, device, optimizer=None):
 def _train_loop(model, optimizer, train_loader, val_loader, device,
                 metrics_writer, metrics_file,
                 start_epoch, n_epochs_to_run,
-                best_val_loss_so_far, log_fn):
+                best_val_loss_so_far, log_fn, scheduler=None):
     """Run training for `n_epochs_to_run` epochs, starting from `start_epoch`.
 
     Appends rows to metrics.csv (one per epoch). Returns:
@@ -149,6 +219,7 @@ def _train_loop(model, optimizer, train_loader, val_loader, device,
     best_epoch = -1
     best_val_loss = best_val_loss_so_far
     val_acc_best = -1.0
+    patience = 0
 
     train_acc_final = 0.0
     val_acc_final = 0.0
@@ -162,6 +233,9 @@ def _train_loop(model, optimizer, train_loader, val_loader, device,
         )
         val_loss, val_acc, _ = run_epoch(model, val_loader, device, optimizer=None)
         dt = time.time() - t0
+
+        if scheduler is not None:
+            scheduler.step()
 
         metrics_writer.writerow([
             epoch,
@@ -178,6 +252,9 @@ def _train_loop(model, optimizer, train_loader, val_loader, device,
             best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
             val_acc_best = val_acc
+            patience = 0
+        else:
+            patience += 1
 
         train_acc_final = train_acc
         val_acc_final   = val_acc
@@ -189,6 +266,10 @@ def _train_loop(model, optimizer, train_loader, val_loader, device,
             f"val_loss={val_loss:.4f} acc={val_acc:.4f} | "
             f"gnorm={train_gnorm:.3e} | {dt:.1f}s"
         )
+        
+        if patience >= BASELINE.EARLY_STOP_PATIENCE:
+            log_fn(f"  Early stopping at epoch {epoch}")
+            break
 
     return (best_state, best_epoch, best_val_loss,
             train_acc_final, val_acc_final, val_acc_best,
@@ -206,24 +287,45 @@ def save_best_state(run_dir, best_state_dict):
                os.path.join(run_dir, "best_state.pt"))
 
 
-def save_last_state(run_dir, model, optimizer, last_epoch, best_val_loss):
+def save_last_state(run_dir, model, optimizer, last_epoch, best_val_loss,
+                    scheduler_T0: int):
+    """Persist the full training state for resuming.
+
+    `scheduler_T0` is the T_0 used when the scheduler was created so that
+    extend_training can reconstruct a compatible scheduler on resume.
+    """
     torch.save({
-        "model_state": model.state_dict(),
+        "model_state":     model.state_dict(),
         "optimizer_state": optimizer.state_dict(),
-        "last_epoch": last_epoch,
-        "best_val_loss": best_val_loss,
+        "last_epoch":      last_epoch,
+        "best_val_loss":   best_val_loss,
+        "scheduler_T0":    scheduler_T0,
     }, os.path.join(run_dir, "last_state.pt"))
 
 
 def load_last_state(run_dir, model, optimizer):
-    """Returns (last_epoch, best_val_loss). Modifies model/optimizer in-place."""
+    """Load model + optimizer state.  Returns (last_epoch, best_val_loss, scheduler_T0).
+
+    `scheduler_T0` falls back to a sensible default when loading an older
+    checkpoint that did not serialise it (backward compatibility).
+    The optimizer state loading is wrapped in a try/except so that checkpoints
+    created with a different optimiser structure (e.g. single-group Adam from
+    a previous code version) degrade gracefully: the model weights are always
+    restored; only the optimiser momentum is lost.
+    """
     path = os.path.join(run_dir, "last_state.pt")
     if not os.path.exists(path):
         raise FileNotFoundError(f"last_state.pt not found in {run_dir!r}")
     ckpt = torch.load(path, weights_only=True)
     model.load_state_dict(ckpt["model_state"])
-    optimizer.load_state_dict(ckpt["optimizer_state"])
-    return int(ckpt["last_epoch"]), float(ckpt["best_val_loss"])
+    try:
+        optimizer.load_state_dict(ckpt["optimizer_state"])
+    except Exception:
+        # Optimizer state incompatible (e.g. old single-group Adam checkpoint);
+        # continue with a fresh optimizer â€” model weights are still restored.
+        pass
+    scheduler_T0 = int(ckpt.get("scheduler_T0", max(1, BASELINE.EPOCHS // 3)))
+    return int(ckpt["last_epoch"]), float(ckpt["best_val_loss"]), scheduler_T0
 
 
 def load_best_state(run_dir, model):
@@ -259,7 +361,7 @@ def train_one_run(ansatz_name, encoding_name, seed, run_dir,
     if train_per_class is None:
         train_loader, val_loader, test_loader = load_data(seed=seed)
     else:
-        from fashion_suite.config import BASELINE as _B
+        from suitev2.config import BASELINE as _B
         orig = _B.TRAIN_PER_CLASS
         _B.TRAIN_PER_CLASS = train_per_class
         try:
@@ -267,7 +369,11 @@ def train_one_run(ansatz_name, encoding_name, seed, run_dir,
         finally:
             _B.TRAIN_PER_CLASS = orig
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=BASELINE.LR)
+    optimizer = build_optimizer(model)
+    T0 = max(1, epochs // 3)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=T0, T_mult=1, eta_min=1e-5
+    )
 
     os.makedirs(run_dir, exist_ok=True)
     with open(os.path.join(run_dir, "config.json"), "w") as f:
@@ -276,6 +382,8 @@ def train_one_run(ansatz_name, encoding_name, seed, run_dir,
             "encoding": encoding_name,
             "seed": seed,
             "epochs_initial": epochs,
+            "lr_qkernel": BASELINE.LR_QKERNEL,
+            "lr_embed":   BASELINE.LR_EMBED,
             "lr": BASELINE.LR,
             "batch_size": BASELINE.BATCH_SIZE,
             "train_per_class": train_per_class or BASELINE.TRAIN_PER_CLASS,
@@ -304,13 +412,14 @@ def train_one_run(ansatz_name, encoding_name, seed, run_dir,
             start_epoch=1, n_epochs_to_run=epochs,
             best_val_loss_so_far=float("inf"),
             log_fn=log_fn,
+            scheduler=scheduler,
         )
     finally:
         metrics_f.close()
 
     # Persist checkpoints
     save_best_state(run_dir, best_state)
-    save_last_state(run_dir, model, optimizer, last_epoch, best_val_loss)
+    save_last_state(run_dir, model, optimizer, last_epoch, best_val_loss, scheduler_T0=T0)
 
     # Test eval uses the best checkpoint
     if best_state is not None:
@@ -373,13 +482,20 @@ def extend_training(run_dir, extra_epochs, log_fn=print):
     set_seed(seed)  # re-seed for reproducibility within the loaded indices
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Rebuild model + optimizer, then load state
+    # Rebuild model + optimiser, then load state from checkpoint.
+    # build_optimizer must be called BEFORE load_last_state so the optimiser
+    # has the same group structure and the state_dict can be loaded correctly.
     model = FashionQCNN(ansatz_name, encoding_name).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=BASELINE.LR)
-    last_epoch_done, best_val_loss = load_last_state(run_dir, model, optimizer)
+    optimizer = build_optimizer(model)
+    last_epoch_done, best_val_loss, prev_T0 = load_last_state(run_dir, model, optimizer)
+    # Use a fresh cosine schedule for the extension window.
+    T0_ext = max(1, extra_epochs // 3)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=T0_ext, T_mult=1, eta_min=1e-5
+    )
 
     # Override TRAIN_PER_CLASS if the original config used a smoke value
-    from fashion_suite.config import BASELINE as _B
+    from suitev2.config import BASELINE as _B
     orig_tpc = _B.TRAIN_PER_CLASS
     _B.TRAIN_PER_CLASS = train_per_class
     try:
@@ -405,6 +521,7 @@ def extend_training(run_dir, extra_epochs, log_fn=print):
             n_epochs_to_run=extra_epochs,
             best_val_loss_so_far=best_val_loss,
             log_fn=log_fn,
+            scheduler=scheduler,
         )
     finally:
         metrics_f.close()
@@ -412,7 +529,8 @@ def extend_training(run_dir, extra_epochs, log_fn=print):
     # If a new best was found during extension, persist it; otherwise keep old
     if best_state_new is not None:
         save_best_state(run_dir, best_state_new)
-    save_last_state(run_dir, model, optimizer, last_epoch_new, best_val_loss_new)
+    save_last_state(run_dir, model, optimizer, last_epoch_new, best_val_loss_new,
+                    scheduler_T0=T0_ext)
 
     # Test eval on base chunk using the (possibly updated) best state
     load_best_state(run_dir, model)
@@ -457,7 +575,7 @@ def evaluate_test_chunk(run_dir, extra_per_class, chunk_id, log_fn=print):
     """Evaluate the best-state model on a NEW test chunk (offset = base + previous extensions).
 
     The offset is automatically tracked: the chunk starts at `test_per_class`
-    used in the base config (no support for arbitrary offsets — chunks must
+    used in the base config (no support for arbitrary offsets â€” chunks must
     be contiguous, added sequentially).
 
     Caller (extend_run.py) is responsible for choosing chunk_id consistently
@@ -555,3 +673,4 @@ def evaluate_test_chunk_at_offset(run_dir, offset_per_class, extra_per_class,
         "test_acc":        test_acc,
         "confusion_matrix": cm.tolist(),
     }
+

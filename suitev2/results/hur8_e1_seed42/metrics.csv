@@ -1,0 +1,2 @@
+epoch,train_loss,train_acc,val_loss,val_acc,grad_norm,time_sec
+1,4.930479,0.250000,4.473273,0.250000,1.000000e+00,8.69

@@ -1,8 +1,9 @@
-"""
-config.py — Suite-wide configuration: hyperparameters, registries, seeds.
+﻿"""
+config.py â€” Suite-wide configuration: hyperparameters, registries, seeds.
 
 The suite explores a 4-ansatz x 3-encoding matrix on Fashion-MNIST 4-class.
-Placeholder slots (custom4q, dense) raise NotImplementedError and are skipped
+  encodings: e3 (amplitude), e1 (affine angle + global ancilla), custom (pairwise fragment)
+Placeholder slots (custom4q) raise NotImplementedError and are skipped
 by run_suite.py.
 """
 
@@ -22,6 +23,7 @@ class BaselineConfig:
     N_CLASSES: int = 4
     FASHION_CLASSES: tuple = (0, 1, 7, 8)   # T-shirt/top, Trouser, Sneaker, Bag
     CLASS_MAP: dict = field(default_factory=lambda: {0: 0, 1: 1, 7: 2, 8: 3})
+    ENCODINGS: list = field(default_factory=lambda: ["amplitude", "E1", "custom"])
 
     # Split allineato esattamente al paper Hur 2022 (Sec. IV A):
     #   12000 train / 2000 test per Fashion-MNIST (ratio 6:1).
@@ -37,7 +39,18 @@ class BaselineConfig:
     # Training
     BATCH_SIZE: int = 24
     EPOCHS: int = 15
-    LR: float = 1e-3
+    LR: float = 1e-3            # kept for config.json logging / backward compat
+    EARLY_STOP_PATIENCE: int = 10
+    LABEL_SMOOTHING: float = 0.1
+
+    # Optimizer â€” per-group AdamW learning rates & weight decays
+    # LR_QKERNEL applies to theta_conv + theta_pool (quantum circuit params).
+    # LR_EMBED   applies to a_embed/c_embed (E1) and theta_enc (custom);
+    #            kept deliberately lower so the encoding doesn't blow up early.
+    LR_QKERNEL:  float = 1e-3
+    LR_EMBED:    float = 1e-4
+    WD_QKERNEL:  float = 1e-5
+    WD_EMBED:    float = 1e-5
 
     # E1-specific (replicated from versione_1_test/qcnn_builder.py)
     E1_INIT_A: float = 0.2
@@ -79,11 +92,11 @@ def populate_registries():
     """Populate the registries from the implementation modules.
 
     Called lazily by run_suite.py to avoid import-time circular deps.
-    Placeholders (custom4q, dense) are registered as (None, None, ...)
-    so the suite can list them in the combo matrix and log a SKIPPED row.
+    Placeholders (custom4q) are registered as (None, None, ...)
+    to be explicitly skipped by the runner. the combo matrix and log a SKIPPED row.
     """
-    from fashion_suite import ansatz as _ansatz
-    from fashion_suite import encodings as _encodings
+    from suitev2 import ansatz as _ansatz
+    from suitev2 import encodings as _encodings
 
     ANSATZ_REGISTRY.clear()
     ANSATZ_REGISTRY.update({
@@ -97,7 +110,7 @@ def populate_registries():
     ENCODING_REGISTRY.update({
         "e1":    (_encodings.encoding_e1, 9, True),    # 9 wires, has trainable params
         "e3":    (_encodings.encoding_e3, 8, False),   # 8 wires, no trainable params
-        "dense": (None,                   None, None), # placeholder
+        "custom": (_encodings.encoding_custom, 8, True),
     })
 
 
@@ -126,3 +139,4 @@ def combo_is_runnable(ansatz_name: str, encoding_name: str) -> tuple:
     if ENCODING_REGISTRY[encoding_name][0] is None:
         return False, f"encoding '{encoding_name}' is a placeholder"
     return True, None
+

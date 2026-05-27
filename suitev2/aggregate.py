@@ -1,5 +1,5 @@
-"""
-aggregate.py — Post-processing: reads results/summary.csv and produces
+﻿"""
+aggregate.py â€” Post-processing: reads results/summary.csv and produces
 mean/std across seeds for each (ansatz, encoding, n_epochs_trained, chunk_id).
 
 Groups rows by (ansatz, encoding, n_epochs_trained, chunk_id). For each
@@ -122,3 +122,4 @@ def aggregate(summary_path=SUMMARY_PATH_DEFAULT,
 
 if __name__ == "__main__":
     aggregate()
+

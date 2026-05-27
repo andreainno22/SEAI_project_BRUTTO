@@ -1,0 +1,16 @@
+{
+  "ansatz": "hur8",
+  "encoding": "custom",
+  "seed": 42,
+  "epochs_initial": 1,
+  "lr_qkernel": 0.001,
+  "lr_embed": 0.0001,
+  "lr": 0.001,
+  "batch_size": 24,
+  "train_per_class": 50,
+  "val_per_class": 500,
+  "test_per_class": 500,
+  "n_qubits": 8,
+  "n_conv_params": 10,
+  "n_trainable_params": 56
+}

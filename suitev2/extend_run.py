@@ -1,5 +1,5 @@
-"""
-extend_run.py — Two extension modes for a finished suite:
+﻿"""
+extend_run.py â€” Two extension modes for a finished suite:
 
   1) TRAIN EXTENSION (--mode train --epochs N)
      For each existing run dir (matching the filters), load last_state.pt,
@@ -15,9 +15,9 @@ extend_run.py — Two extension modes for a finished suite:
      chunk_id like 'ext_1', 'ext_2', etc.
 
 Usage:
-  python -m fashion_suite.extend_run --mode train --epochs 10
-  python -m fashion_suite.extend_run --mode test  --extra-per-class 200
-  python -m fashion_suite.extend_run --mode train --epochs 5 --runs hur8_e3_seed42
+  python -m suitev2.extend_run --mode train --epochs 10
+  python -m suitev2.extend_run --mode test  --extra-per-class 200
+  python -m suitev2.extend_run --mode train --epochs 5 --runs hur8_e3_seed42
 """
 
 import argparse
@@ -27,9 +27,9 @@ import sys
 import time
 from datetime import datetime
 
-from fashion_suite.config import BASELINE
-from fashion_suite.train import extend_training, evaluate_test_chunk_at_offset
-from fashion_suite.run_suite import (
+from suitev2.config import BASELINE
+from suitev2.train import extend_training, evaluate_test_chunk_at_offset
+from suitev2.run_suite import (
     SUMMARY_HEADER, ensure_summary_header, append_summary_row,
 )
 
@@ -146,7 +146,7 @@ def mode_test(args, runs, summary_path):
     # Group runs by (ansatz, encoding, seed) and read existing summary to find next chunk
     summary_rows = read_summary_rows(summary_path)
 
-    # Verify all runs share the same set of (ansatz, encoding) — they should,
+    # Verify all runs share the same set of (ansatz, encoding) â€” they should,
     # since "test extension always on all configs together".
     if args.runs:
         sys.exit("--runs is not allowed in test mode (must extend all configs together)")
@@ -237,3 +237,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
