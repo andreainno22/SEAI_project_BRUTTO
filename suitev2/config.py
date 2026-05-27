@@ -23,7 +23,6 @@ class BaselineConfig:
     N_CLASSES: int = 4
     FASHION_CLASSES: tuple = (0, 1, 7, 8)   # T-shirt/top, Trouser, Sneaker, Bag
     CLASS_MAP: dict = field(default_factory=lambda: {0: 0, 1: 1, 7: 2, 8: 3})
-    ENCODINGS: list = field(default_factory=lambda: ["amplitude", "E1", "custom"])
 
     # Split allineato esattamente al paper Hur 2022 (Sec. IV A):
     #   12000 train / 2000 test per Fashion-MNIST (ratio 6:1).

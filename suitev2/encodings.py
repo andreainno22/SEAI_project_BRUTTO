@@ -53,7 +53,15 @@ def encoding_e3(x_flat, norm_angle=None, n_qubits=8):
         norm_angle = pi * ||x_flat||_2 / sqrt(n_pixels)
 
     so that a blank image gives 0 and a fully-saturated image gives ~pi.
-    Matches pulito86's encoding step (+ norm injection from suitev1).
+    Matches pulito86's encoding step.
+
+    Note: the norm-injection IDEA is borrowed from suitev1, but the formula
+    here is intentionally different.  suitev1 processes 4 patches per image
+    and injects a RELATIVE per-patch norm `pi * norm_p / sum(norm_q)` to
+    encode inter-patch contrast.  suitev2 processes the whole 16x16 image as
+    a single QNode call, so the natural quantity to inject is the ABSOLUTE
+    image brightness, normalised by sqrt(n_pixels) so it stays bounded in
+    [0, pi] regardless of image size.
     """
     qml.AmplitudeEmbedding(features=x_flat, wires=range(n_qubits), normalize=True)
     if norm_angle is not None:
