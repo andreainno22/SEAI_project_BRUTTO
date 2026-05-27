@@ -31,13 +31,15 @@ class BaselineConfig:
     #   test : 2000  / 4 =  500 per classe
     # Val: il paper non specifica un val set; usiamo val=test in size
     # (500/classe), pratica standard per early stopping/best checkpoint.
+
+    # Fashion-MNIST ha 6000 immagini per train + val e 1000 per test per classe.
     TRAIN_PER_CLASS: int = 3000     # 4 * 3000 = 12000 total
     VAL_PER_CLASS:   int = 500       # 4 * 500  =  2000 total
     TEST_PER_CLASS:  int = 500       # 4 * 500  =  2000 total
 
     # Training
     BATCH_SIZE: int = 24
-    EPOCHS: int = 15
+    EPOCHS: int = 30
     LR: float = 1e-3            # kept for config.json logging / backward compat
     EARLY_STOP_PATIENCE: int = 10
     LABEL_SMOOTHING: float = 0.1
