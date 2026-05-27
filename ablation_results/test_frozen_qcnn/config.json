@@ -18,7 +18,7 @@
   "INJECT_NORM": true,
   "ANSATZ_TYPE": "v2_deep",
   "READOUT": "Z_ZZ",
-  "QCNN_TRAINABLE": true,
+  "QCNN_TRAINABLE": false,
   "INIT_NOISE_SCALE": 0.001,
   "E1_INIT_A": 0.2,
   "LAMBDA_FUSION": 0.7853981633974483,

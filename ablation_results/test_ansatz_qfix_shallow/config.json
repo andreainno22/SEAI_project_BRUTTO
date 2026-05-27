@@ -16,7 +16,7 @@
   "LABEL_SMOOTHING": 0.1,
   "ENCODING": "amplitude",
   "INJECT_NORM": true,
-  "ANSATZ_TYPE": "v2_deep",
+  "ANSATZ_TYPE": "qfix_shallow",
   "READOUT": "Z_ZZ",
   "QCNN_TRAINABLE": true,
   "INIT_NOISE_SCALE": 0.001,

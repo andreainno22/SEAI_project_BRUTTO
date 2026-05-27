@@ -17,7 +17,7 @@
   "ENCODING": "amplitude",
   "INJECT_NORM": true,
   "ANSATZ_TYPE": "v2_deep",
-  "READOUT": "Z_ZZ",
+  "READOUT": "Z",
   "QCNN_TRAINABLE": true,
   "INIT_NOISE_SCALE": 0.001,
   "E1_INIT_A": 0.2,
