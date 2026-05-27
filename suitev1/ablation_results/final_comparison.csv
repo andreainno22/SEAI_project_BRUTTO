@@ -1,0 +1,7 @@
+test_name,final_test_acc,final_test_loss,best_val_loss,n_trainable_params,encoding,ansatz,readout,trainable,inject_norm
+test_ansatz_flat_no_pool,0.7748,0.7385,0.7197,794,amplitude,flat_no_pool,Z_ZZ,True,True
+test_ansatz_qfix_shallow,0.7408,0.7721,0.7702,418,amplitude,qfix_shallow,Z_ZZ,True,True
+baseline_amplitude,0.7308,0.7796,0.7762,426,amplitude,v2_deep,Z_ZZ,True,True
+test_readout_Z_only,0.6948,0.887,0.8823,234,amplitude,v2_deep,Z,True,True
+test_frozen_qcnn,0.6708,1.0009,1.006,394,amplitude,v2_deep,Z_ZZ,False,True
+test_E1_custom,0.6648,0.9898,1.015,442,E1,v2_deep,Z_ZZ,True,False
