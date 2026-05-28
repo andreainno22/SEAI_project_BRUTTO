@@ -47,7 +47,7 @@ class BaselineConfig:
     # Optimizer â€” per-group AdamW learning rates & weight decays
     # LR_QKERNEL applies to theta_conv + theta_pool (quantum circuit params).
     # LR_EMBED   applies to a_embed/c_embed (E1) and theta_enc (custom);
-    #            kept deliberately lower so the encoding doesn't blow up early.
+    #            kept deliberately lower (factor of 10) so the encoding doesn't blow up early.
     LR_QKERNEL:  float = 1e-3
     LR_EMBED:    float = 1e-4
     WD_QKERNEL:  float = 1e-5

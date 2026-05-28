@@ -154,7 +154,6 @@ _transform = transforms.Compose([
 _train_transform = transforms.Compose([
     transforms.Resize((BASELINE.IMG_SIZE, BASELINE.IMG_SIZE)),
     transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomCrop(BASELINE.IMG_SIZE, padding=2),
     transforms.ToTensor(),
 ])
 
@@ -192,7 +191,7 @@ def load_data(batch_size=None, seed=42):
     )
 
     # For the training set we decouple augmentation from feature extraction:
-    #   x_flat  â†’ augmented image (RandomHorizontalFlip + RandomCrop) for E3/custom
+    #   x_flat  â†’ augmented image (RandomHorizontalFlip) for E3/custom
     #   E1 features (quad_means_8, gA4) â†’ clean image (no augmentation)
     # This stabilises the statistical features seen by a_embed/c_embed while
     # still providing input-space regularisation for the amplitude encoding.

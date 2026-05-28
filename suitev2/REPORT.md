@@ -50,7 +50,7 @@ Output: 4 probabilità `[P(00), P(01), P(10), P(11)]` mappate sulle 4 classi.
 
 **Batch size**: 24. **Default epochs**: 15. **Early stopping**: `patience=10`. **Grad clip**: `clip_grad_norm_=1.0`.
 
-**Data augmentation** (solo train, vedi sez. 5.5): `RandomHorizontalFlip(p=0.5)` + `RandomCrop(16, padding=2)`. Val/test sono sempre senza augmentazione.
+**Data augmentation** (solo train, vedi sez. 5.5): `RandomHorizontalFlip(p=0.5)`. Val/test sono sempre senza augmentazione.
 
 ## 4. Struttura file
 

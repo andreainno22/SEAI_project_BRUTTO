@@ -102,7 +102,7 @@ def build_optimizer(model) -> torch.optim.Optimizer:
         These are the circuit rotation angles; they respond well to a standard
         LR in the 1e-3 range.
       - encoding params (a_embed, c_embed for E1; theta_enc for custom):
-        LR_EMBED / WD_EMBED.  A lower LR prevents the affine slopes from
+        LR_EMBED / WD_EMBED.  A lower LR (factor of 10) prevents the affine slopes from
         diverging before the circuit params have had time to adapt.
     """
     # Quantum kernel parameters (always present)
