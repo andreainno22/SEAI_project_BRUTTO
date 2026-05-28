@@ -50,7 +50,7 @@ Output: 4 probabilità `[P(00), P(01), P(10), P(11)]` mappate sulle 4 classi.
 
 **Batch size**: 24. **Default epochs**: 15. **Early stopping**: `patience=10`. **Grad clip**: `clip_grad_norm_=1.0`.
 
-**Data augmentation** (solo train, vedi sez. 5.5): `RandomHorizontalFlip(p=0.5)`. Val/test sono sempre senza augmentazione.
+**Data augmentation**: disattivata. Train/val/test usano solo resize a 16x16 + `ToTensor()`.
 
 ## 4. Struttura file
 
@@ -167,25 +167,17 @@ Numero parametri trainabili (per combo):
 | `e1`     | `2·n_conv + 4`      | 16             | hur6:32 · hur8:40 · hur9:50 |
 | `custom` | `2·n_conv + 4`      | 32             | hur6:48 · hur8:56 · hur9:66 |
 
-### 5.5 Data augmentation e doppio-dataset E1 ([data.py:149-210](data.py#L149-L210))
+### 5.5 Data preprocessing ([data.py:149-210](data.py#L149-L210))
 
-Solo per il training, l'immagine viene augmentata con:
+Data augmentation disattivata dopo confronto empirico: non migliorava le metriche sul subset Fashion-MNIST 4-classi. Train/val/test usano lo stesso preprocessing:
 ```python
-_train_transform = Compose([
+Compose([
     Resize((16, 16)),
-    RandomHorizontalFlip(p=0.5),
-    RandomCrop(16, padding=2),
     ToTensor(),
 ])
 ```
 
-Val/test non sono mai augmentati. Su Fashion-MNIST 4-classi `{T-shirt, Trouser, Sneaker, Bag}` il flip orizzontale è ragionevole: nessuna classe ha asimmetria L/R semanticamente rilevante (le sneaker possono guardare in entrambe le direzioni).
-
-**Trucco "feature_dataset"** ([data.py:41-62](data.py#L41-L62)): il `RemapFashionMNIST` ammette opzionalmente un secondo dataset *non augmentato* dagli stessi indici. Per il training set lo si fornisce, e:
-- `x_flat` viene preso dall'immagine **augmentata** (così E3/custom vedono variazione utile);
-- `quad_means_8` e `gA4` (feature statistiche usate da E1) vengono calcolati sull'immagine **pulita**.
-
-Motivazione: `a_embed`/`c_embed` di E1 imparano un mapping affine fra medie di blocchi e angoli di rotazione. Se ogni epoch le medie cambiano per via dell'augmentazione, il segnale che `a_embed` deve imparare diventa rumoroso e l'embedding fatica a convergere. Tenere le statistiche stabili e augmentare solo l'input pixel è un compromesso che dà augmentazione a E3 senza romperla per E1.
+`RemapFashionMNIST` restituisce comunque `(x_flat, quad_means_8, gA4, y)` per supportare tutti gli encoding con lo stesso loader.
 
 ## 6. Workflow
 

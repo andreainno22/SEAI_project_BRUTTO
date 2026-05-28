@@ -42,6 +42,7 @@ class BaselineConfig:
     EPOCHS: int = 30
     LR: float = 1e-3            # kept for config.json logging / backward compat
     EARLY_STOP_PATIENCE: int = 10
+    EARLY_STOP_MIN_REL_DELTA: float = 1e-2
     LABEL_SMOOTHING: float = 0.1
 
     # Optimizer â€” per-group AdamW learning rates & weight decays
@@ -49,7 +50,7 @@ class BaselineConfig:
     # LR_EMBED   applies to a_embed/c_embed (E1) and theta_enc (custom);
     #            kept deliberately lower (factor of 10) so the encoding doesn't blow up early.
     LR_QKERNEL:  float = 1e-3
-    LR_EMBED:    float = 1e-4
+    LR_EMBED:    float = 1e-3
     WD_QKERNEL:  float = 1e-5
     WD_EMBED:    float = 1e-5
 

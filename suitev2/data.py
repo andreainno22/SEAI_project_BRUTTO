@@ -26,16 +26,11 @@ class RemapFashionMNIST(Dataset):
     """Wraps a Subset, applies CLASS_MAP, and returns the precomputed features.
 
     Args:
-      base_dataset:    The primary Subset (possibly with augmentation transforms).
+      base_dataset:    The primary Subset.
                        Its images are used for x_flat (the raw pixel vector sent to E3/custom).
       class_map:       Dict mapping original label â†’ remapped label.
-      feature_dataset: Optional Subset with NO augmentation, sharing the same indices as
-                       base_dataset.  When provided, quad_means_8 and gA4 are computed
-                       from the clean (non-augmented) image rather than from the augmented
-                       one.  This decouples stochastic data-augmentation (beneficial for E3)
-                       from the deterministic statistical features used by E1 (which must
-                       remain stable across epochs for a_embed/c_embed to learn correctly).
-                       Leave None for val/test sets, where augmentation is never applied.
+      feature_dataset: Optional Subset sharing the same indices as base_dataset,
+                       kept for compatibility with older augmentation experiments.
     """
 
     def __init__(self, base_dataset, class_map, feature_dataset=None):
@@ -47,11 +42,9 @@ class RemapFashionMNIST(Dataset):
         return len(self.base_dataset)
 
     def __getitem__(self, idx):
-        x, y   = self.base_dataset[idx]          # x: (1, 16, 16), possibly augmented
+        x, y   = self.base_dataset[idx]          # x: (1, 16, 16)
         x_flat = x.reshape(-1)                    # (256,)  â€” used by E3 / custom
 
-        # Use the clean (non-augmented) image for statistical features so that
-        # E1 embedding parameters (a_embed, c_embed) see stable per-pixel statistics.
         feat_img = x
         if self.feature_dataset is not None:
             feat_img, _ = self.feature_dataset[idx]
@@ -151,26 +144,16 @@ _transform = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-_train_transform = transforms.Compose([
-    transforms.Resize((BASELINE.IMG_SIZE, BASELINE.IMG_SIZE)),
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.ToTensor(),
-])
-
-
 def load_data(batch_size=None, seed=42):
     """Return (train_loader, val_loader, test_loader) for the suite.
 
-    Same split sizes as pulito86 (2000/400/300 per class). Uses `seed` only
-    to pick balanced indices reproducibly; DataLoader shuffling uses its own RNG.
+    Split sizes come from BASELINE. Uses `seed` only to pick balanced indices
+    reproducibly; DataLoader shuffling uses its own RNG.
     """
     if batch_size is None:
         batch_size = BASELINE.BATCH_SIZE
 
-    train_full_aug = datasets.FashionMNIST(
-        root="./data", train=True, download=True, transform=_train_transform,
-    )
-    train_full_val = datasets.FashionMNIST(
+    train_full = datasets.FashionMNIST(
         root="./data", train=True, download=True, transform=_transform,
     )
     test_full = datasets.FashionMNIST(
@@ -178,11 +161,11 @@ def load_data(batch_size=None, seed=42):
     )
 
     train_idx = make_balanced_indices(
-        train_full_val, BASELINE.CLASS_MAP, BASELINE.TRAIN_PER_CLASS,
+        train_full, BASELINE.CLASS_MAP, BASELINE.TRAIN_PER_CLASS,
         offset_per_class=0, seed=seed,
     )
     val_idx = make_balanced_indices(
-        train_full_val, BASELINE.CLASS_MAP, BASELINE.VAL_PER_CLASS,
+        train_full, BASELINE.CLASS_MAP, BASELINE.VAL_PER_CLASS,
         offset_per_class=BASELINE.TRAIN_PER_CLASS, seed=seed,
     )
     test_idx = make_balanced_indices(
@@ -190,16 +173,8 @@ def load_data(batch_size=None, seed=42):
         offset_per_class=0, seed=seed,
     )
 
-    # For the training set we decouple augmentation from feature extraction:
-    #   x_flat  â†’ augmented image (RandomHorizontalFlip) for E3/custom
-    #   E1 features (quad_means_8, gA4) â†’ clean image (no augmentation)
-    # This stabilises the statistical features seen by a_embed/c_embed while
-    # still providing input-space regularisation for the amplitude encoding.
-    train_ds = RemapFashionMNIST(
-        Subset(train_full_aug, train_idx), BASELINE.CLASS_MAP,
-        feature_dataset=Subset(train_full_val, train_idx),
-    )
-    val_ds   = RemapFashionMNIST(Subset(train_full_val, val_idx),  BASELINE.CLASS_MAP)
+    train_ds = RemapFashionMNIST(Subset(train_full, train_idx), BASELINE.CLASS_MAP)
+    val_ds   = RemapFashionMNIST(Subset(train_full, val_idx),    BASELINE.CLASS_MAP)
     test_ds  = RemapFashionMNIST(Subset(test_full, test_idx),      BASELINE.CLASS_MAP)
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)

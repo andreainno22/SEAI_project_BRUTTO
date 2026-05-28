@@ -247,7 +247,9 @@ def _train_loop(model, optimizer, train_loader, val_loader, device,
         metrics_file.flush()
         os.fsync(metrics_file.fileno())
 
-        if val_loss < best_val_loss:
+        min_improvement = abs(best_val_loss) * BASELINE.EARLY_STOP_MIN_REL_DELTA
+        is_first_best = not np.isfinite(best_val_loss)
+        if is_first_best or val_loss < best_val_loss - min_improvement:
             best_val_loss = val_loss
             best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
@@ -372,7 +374,7 @@ def train_one_run(ansatz_name, encoding_name, seed, run_dir,
     optimizer = build_optimizer(model)
     T0 = max(1, epochs // 3)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, T_0=T0, T_mult=1, eta_min=1e-5
+        optimizer, T_0=T0, T_mult=1, eta_min=1e-4
     )
 
     os.makedirs(run_dir, exist_ok=True)
@@ -386,6 +388,8 @@ def train_one_run(ansatz_name, encoding_name, seed, run_dir,
             "lr_embed":   BASELINE.LR_EMBED,
             "lr": BASELINE.LR,
             "batch_size": BASELINE.BATCH_SIZE,
+            "early_stop_patience": BASELINE.EARLY_STOP_PATIENCE,
+            "early_stop_min_rel_delta": BASELINE.EARLY_STOP_MIN_REL_DELTA,
             "train_per_class": train_per_class or BASELINE.TRAIN_PER_CLASS,
             "val_per_class":   BASELINE.VAL_PER_CLASS,
             "test_per_class":  BASELINE.TEST_PER_CLASS,
