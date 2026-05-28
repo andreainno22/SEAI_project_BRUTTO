@@ -98,7 +98,8 @@ def build_optimizer(model) -> torch.optim.Optimizer:
     """Return an AdamW optimiser with per-group learning rates.
 
     Parameter groups:
-      - quantum kernel (theta_conv1/2, theta_pool1/2): LR_QKERNEL / WD_QKERNEL.
+      - quantum kernel (theta_conv1/2, theta_pool1/2 when trainable,
+        theta_final when present): LR_QKERNEL / WD_QKERNEL.
         These are the circuit rotation angles; they respond well to a standard
         LR in the 1e-3 range.
       - encoding params (a_embed, c_embed for E1; theta_enc for custom):
@@ -110,9 +111,12 @@ def build_optimizer(model) -> torch.optim.Optimizer:
         model.theta_conv1, model.theta_pool1,
         model.theta_conv2, model.theta_pool2,
     ]
+    if getattr(model, "theta_final", None) is not None:
+        qkernel_params.append(model.theta_final)
+    qkernel_params = [p for p in qkernel_params if isinstance(p, torch.nn.Parameter) and p.requires_grad]
     groups = [
         {
-            "params":       [p for p in qkernel_params if p.requires_grad],
+            "params":       qkernel_params,
             "lr":           BASELINE.LR_QKERNEL,
             "weight_decay": BASELINE.WD_QKERNEL,
         }
@@ -395,6 +399,8 @@ def train_one_run(ansatz_name, encoding_name, seed, run_dir,
             "test_per_class":  BASELINE.TEST_PER_CLASS,
             "n_qubits": model.n_qubits,
             "n_conv_params": model.n_conv,
+            "n_pool_params": model.n_pool,
+            "use_final_classifier": model.use_final_classifier,
             "n_trainable_params": n_params,
         }, f, indent=2)
 

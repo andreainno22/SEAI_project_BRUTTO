@@ -25,6 +25,8 @@ import time
 from datetime import datetime
 
 from suitev2.config import (
+    ANSATZ_REGISTRY,
+    ENCODING_REGISTRY,
     SUITE_SEEDS,
     all_combos,
     combo_is_runnable,
@@ -65,6 +67,26 @@ def parse_args():
     p.add_argument("--train-per-class", type=int, default=None,
                    help="Override BASELINE.TRAIN_PER_CLASS (smoke test).")
     return p.parse_args()
+
+
+def parse_combo_name(combo_name: str):
+    """Parse '<ansatz>_<encoding>' while allowing underscores in ansatz names."""
+    matches = []
+    for encoding_name in ENCODING_REGISTRY:
+        suffix = f"_{encoding_name}"
+        if combo_name.endswith(suffix):
+            ansatz_name = combo_name[:-len(suffix)]
+            if ansatz_name in ANSATZ_REGISTRY:
+                matches.append((ansatz_name, encoding_name))
+
+    if len(matches) == 1:
+        return matches[0]
+
+    valid = ", ".join(f"{a}_{e}" for a, e in all_combos())
+    raise SystemExit(
+        f"--combo must match one registered '<ansatz>_<encoding>'; "
+        f"got {combo_name!r}. Valid combos: {valid}"
+    )
 
 
 # ============================================================
@@ -120,10 +142,7 @@ def main():
     # Pick combos
     combos = all_combos()
     if args.combo:
-        a, _, e = args.combo.partition("_")
-        if not e:
-            raise SystemExit(f"--combo must be '<ansatz>_<encoding>', got {args.combo!r}")
-        combos = [(a, e)]
+        combos = [parse_combo_name(args.combo)]
     elif args.ansatz or args.encoding:
         combos = [(a, e) for (a, e) in combos
                   if (args.ansatz is None or a == args.ansatz)

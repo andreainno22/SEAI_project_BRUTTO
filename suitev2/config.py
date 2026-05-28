@@ -1,10 +1,8 @@
 ﻿"""
 config.py â€” Suite-wide configuration: hyperparameters, registries, seeds.
 
-The suite explores a 4-ansatz x 3-encoding matrix on Fashion-MNIST 4-class.
+The suite explores the registered ansatz x encoding matrix on Fashion-MNIST 4-class.
   encodings: e3 (amplitude), e1 (affine angle + global ancilla), custom (pairwise fragment)
-Placeholder slots (custom4q) raise NotImplementedError and are skipped
-by run_suite.py.
 """
 
 import math
@@ -39,7 +37,7 @@ class BaselineConfig:
 
     # Training
     BATCH_SIZE: int = 24
-    EPOCHS: int = 30
+    EPOCHS: int = 20
     LR: float = 1e-3            # kept for config.json logging / backward compat
     EARLY_STOP_PATIENCE: int = 10
     EARLY_STOP_MIN_REL_DELTA: float = 1e-2
@@ -73,7 +71,7 @@ SUITE_SEEDS = [42, 43, 44]
 
 # ============================================================
 # Ansatz registry
-#   key   -> (conv_fn, n_conv_params)
+#   key   -> (conv_fn, n_conv_params, pool_fn, n_pool_params)
 #   conv_fn=None means placeholder -> skipped at runtime.
 # ============================================================
 
@@ -94,18 +92,16 @@ def populate_registries():
     """Populate the registries from the implementation modules.
 
     Called lazily by run_suite.py to avoid import-time circular deps.
-    Placeholders (custom4q) are registered as (None, None, ...)
-    to be explicitly skipped by the runner. the combo matrix and log a SKIPPED row.
     """
     from suitev2 import ansatz as _ansatz
     from suitev2 import encodings as _encodings
 
     ANSATZ_REGISTRY.clear()
     ANSATZ_REGISTRY.update({
-        "hur6":     (_ansatz.hur_convolution_circuit6, 6),
-        "hur8":     (_ansatz.hur_convolution_circuit8, 10),
-        "hur9":     (_ansatz.hur_convolution_circuit9, 15),
-        "custom4q": (None, None),   # placeholder
+        "hur6":          (_ansatz.hur_convolution_circuit6, 6,  _ansatz.hur_pool_pair, 2),
+        "hur8":          (_ansatz.hur_convolution_circuit8, 10, _ansatz.hur_pool_pair, 2),
+        "hur9":          (_ansatz.hur_convolution_circuit9, 15, _ansatz.hur_pool_pair, 2),
+        "custom_ansatz": (_ansatz.custom_ansatz,              11, _ansatz.transfer_pooling_pair, 3),
     })
 
     ENCODING_REGISTRY.clear()
@@ -124,8 +120,8 @@ def all_combos():
     """Return list of all (ansatz_name, encoding_name) combinations.
 
     The order is fixed for reproducibility: outer loop = ansatz, inner = encoding.
-    Placeholder combos are included in this list; run_suite.py is responsible
-    for skipping them with a log line.
+    Unrunnable combos, if registered in the future, are included here and
+    skipped by run_suite.py with a log line.
     """
     if not ANSATZ_REGISTRY or not ENCODING_REGISTRY:
         populate_registries()
@@ -136,6 +132,10 @@ def combo_is_runnable(ansatz_name: str, encoding_name: str) -> tuple:
     """Return (is_runnable: bool, skip_reason: str or None)."""
     if not ANSATZ_REGISTRY or not ENCODING_REGISTRY:
         populate_registries()
+    if ansatz_name not in ANSATZ_REGISTRY:
+        return False, f"unknown ansatz '{ansatz_name}'"
+    if encoding_name not in ENCODING_REGISTRY:
+        return False, f"unknown encoding '{encoding_name}'"
     if ANSATZ_REGISTRY[ansatz_name][0] is None:
         return False, f"ansatz '{ansatz_name}' is a placeholder"
     if ENCODING_REGISTRY[encoding_name][0] is None:

@@ -7,9 +7,14 @@ Architecture (matches pulito86 baseline):
   - Pool 8 -> 4 on (1,0),(3,2),(5,4),(7,6); retained wires = [0,2,4,6]
   - Conv layer 2 on wires [0,2,4,6]
   - Pool 4 -> 2 on (2,0),(6,4); output wires = [0, 4]
+  - custom_ansatz adds its final 2-qubit Cartan classifier before readout
   - Return: qml.probs(wires=[0, 4]) -> (B, 4) class probabilities
 
-The ansatz function and parameter shape are looked up in ANSATZ_REGISTRY;
+For hur9 we follow Hur et al.'s "9b" variant: pooling is trace-out only,
+because circuit 9 is already an arbitrary SU(4) gate and the extra controlled
+pooling rotations are potentially redundant.
+
+The ansatz, pooling function, and parameter shapes are looked up in ANSATZ_REGISTRY;
 the encoding function and qubit count in ENCODING_REGISTRY (config.py).
 """
 
@@ -26,7 +31,7 @@ from suitev2.config import (
 )
 from suitev2.ansatz import (
     convolution_layer_on_wires,
-    hur_pool_layer,
+    pooling_layer,
 )
 from suitev2.encodings import compute_gamma
 
@@ -38,6 +43,8 @@ POOL_PAIRS_LAYER2 = [(2, 0), (6, 4)]                    # 4 -> 2 retained [0, 4]
 WIRES_8 = [0, 1, 2, 3, 4, 5, 6, 7]
 WIRES_4 = [0, 2, 4, 6]
 OUTPUT_WIRES = [0, 4]
+TRACE_POOL_ANSATZ = {"hur9"}  # Hur et al. circuit 9b: trace-out only, no pool gates.
+FINAL_CLASSIFIER_ANSATZ = {"custom_ansatz"}  # Matches ciruito_pazzo.ipynb.
 
 
 def patch_8x8_to_2x2_means(patch):
@@ -76,7 +83,12 @@ class FashionQCNN(nn.Module):
         if not ANSATZ_REGISTRY or not ENCODING_REGISTRY:
             populate_registries()
 
-        conv_fn, n_conv = ANSATZ_REGISTRY[ansatz_name]
+        if ansatz_name not in ANSATZ_REGISTRY:
+            raise ValueError(f"Unknown ansatz: {ansatz_name!r}")
+        if encoding_name not in ENCODING_REGISTRY:
+            raise ValueError(f"Unknown encoding: {encoding_name!r}")
+
+        conv_fn, n_conv, pool_fn, n_pool = ANSATZ_REGISTRY[ansatz_name]
         if conv_fn is None:
             raise ValueError(f"ansatz '{ansatz_name}' is a placeholder, cannot instantiate.")
 
@@ -87,15 +99,27 @@ class FashionQCNN(nn.Module):
         self.ansatz_name = ansatz_name
         self.encoding_name = encoding_name
         self.conv_fn = conv_fn
+        self.pool_fn = pool_fn
         self.enc_fn = enc_fn
         self.n_conv = n_conv
         self.n_qubits = n_qubits
+        self.use_param_pool = ansatz_name not in TRACE_POOL_ANSATZ
+        self.use_final_classifier = ansatz_name in FINAL_CLASSIFIER_ANSATZ
+        self.n_pool = n_pool if self.use_param_pool else 0
 
         # Trainable conv + pool parameters
         self.theta_conv1 = nn.Parameter(init_scale * torch.randn(n_conv))
-        self.theta_pool1 = nn.Parameter(init_scale * torch.randn(2))
         self.theta_conv2 = nn.Parameter(init_scale * torch.randn(n_conv))
-        self.theta_pool2 = nn.Parameter(init_scale * torch.randn(2))
+        if self.use_param_pool:
+            self.theta_pool1 = nn.Parameter(init_scale * torch.randn(self.n_pool))
+            self.theta_pool2 = nn.Parameter(init_scale * torch.randn(self.n_pool))
+        else:
+            self.register_buffer("theta_pool1", torch.empty(0))
+            self.register_buffer("theta_pool2", torch.empty(0))
+        if self.use_final_classifier:
+            self.theta_final = nn.Parameter(init_scale * torch.randn(n_conv))
+        else:
+            self.theta_final = None
 
         # Trainable embedding parameters
         if encoding_name == "e1":
@@ -120,19 +144,32 @@ class FashionQCNN(nn.Module):
         encoding_name = self.encoding_name
         conv_fn = self.conv_fn
         enc_fn = self.enc_fn
+        pool_fn = self.pool_fn
+        use_param_pool = self.use_param_pool
+        use_final_classifier = self.use_final_classifier
+
+        def apply_pool(theta_pool, pool_pairs):
+            if use_param_pool:
+                pooling_layer(pool_fn, theta_pool, pool_pairs)
+
+        def apply_final(theta_final):
+            if use_final_classifier:
+                conv_fn(theta_final, OUTPUT_WIRES)
 
         if encoding_name == "e3":
             @qml.qnode(self.dev, interface="torch", diff_method="backprop")
-            def qnode_e3(x_flat, norm_angle, theta_c1, theta_p1, theta_c2, theta_p2):
+            def qnode_e3(x_flat, norm_angle, theta_c1, theta_p1,
+                         theta_c2, theta_p2, theta_final):
                 # norm_angle: (B,) tensor in [0, pi] â€” pre-computed L2-norm angle.
                 # Passed directly to enc_fn so the QNode tape stays static.
                 enc_fn(x_flat, norm_angle=norm_angle, n_qubits=8)
 
                 convolution_layer_on_wires(conv_fn, theta_c1, WIRES_8)
-                hur_pool_layer(theta_p1, POOL_PAIRS_LAYER1)
+                apply_pool(theta_p1, POOL_PAIRS_LAYER1)
 
                 convolution_layer_on_wires(conv_fn, theta_c2, WIRES_4)
-                hur_pool_layer(theta_p2, POOL_PAIRS_LAYER2)
+                apply_pool(theta_p2, POOL_PAIRS_LAYER2)
+                apply_final(theta_final)
 
                 return qml.probs(wires=OUTPUT_WIRES)
             return qnode_e3
@@ -140,30 +177,33 @@ class FashionQCNN(nn.Module):
         elif encoding_name == "e1":
             @qml.qnode(self.dev, interface="torch", diff_method="backprop")
             def qnode_e1(quad_means_8, gammas_4, a_embed, c_embed,
-                         theta_c1, theta_p1, theta_c2, theta_p2):
+                         theta_c1, theta_p1, theta_c2, theta_p2, theta_final):
                 # E1 encoding spans wires 0..8 (ancilla on wire 8)
                 enc_fn(quad_means_8, gammas_4, a_embed, c_embed, ancilla_wire=8)
 
                 # QCNN proceeds on wires 0..7 only (ancilla is "discarded")
                 convolution_layer_on_wires(conv_fn, theta_c1, WIRES_8)
-                hur_pool_layer(theta_p1, POOL_PAIRS_LAYER1)
+                apply_pool(theta_p1, POOL_PAIRS_LAYER1)
 
                 convolution_layer_on_wires(conv_fn, theta_c2, WIRES_4)
-                hur_pool_layer(theta_p2, POOL_PAIRS_LAYER2)
+                apply_pool(theta_p2, POOL_PAIRS_LAYER2)
+                apply_final(theta_final)
 
                 return qml.probs(wires=OUTPUT_WIRES)
             return qnode_e1
 
         elif encoding_name == "custom":
             @qml.qnode(self.dev, interface="torch", diff_method="backprop")
-            def qnode_custom(patches, theta_enc, theta_c1, theta_p1, theta_c2, theta_p2):
+            def qnode_custom(patches, theta_enc, theta_c1, theta_p1,
+                             theta_c2, theta_p2, theta_final):
                 enc_fn(patches, theta_enc)
 
                 convolution_layer_on_wires(conv_fn, theta_c1, WIRES_8)
-                hur_pool_layer(theta_p1, POOL_PAIRS_LAYER1)
+                apply_pool(theta_p1, POOL_PAIRS_LAYER1)
 
                 convolution_layer_on_wires(conv_fn, theta_c2, WIRES_4)
-                hur_pool_layer(theta_p2, POOL_PAIRS_LAYER2)
+                apply_pool(theta_p2, POOL_PAIRS_LAYER2)
+                apply_final(theta_final)
 
                 return qml.probs(wires=OUTPUT_WIRES)
             return qnode_custom
@@ -187,6 +227,7 @@ class FashionQCNN(nn.Module):
                 x_flat, norm_angle,
                 self.theta_conv1, self.theta_pool1,
                 self.theta_conv2, self.theta_pool2,
+                self.theta_final if self.theta_final is not None else x_flat.new_empty(0),
             )
         elif self.encoding_name == "e1":
             gammas = compute_gamma(gA4)   # (B, 4) â€” torch op OUTSIDE the QNode
@@ -195,6 +236,7 @@ class FashionQCNN(nn.Module):
                 self.a_embed, self.c_embed,
                 self.theta_conv1, self.theta_pool1,
                 self.theta_conv2, self.theta_pool2,
+                self.theta_final if self.theta_final is not None else x_flat.new_empty(0),
             )
         elif self.encoding_name == "custom":
             patches = images_to_four_patches(x_flat)
@@ -202,6 +244,7 @@ class FashionQCNN(nn.Module):
                 patches, self.theta_enc,
                 self.theta_conv1, self.theta_pool1,
                 self.theta_conv2, self.theta_pool2,
+                self.theta_final if self.theta_final is not None else x_flat.new_empty(0),
             )
         else:
             raise ValueError(f"Unknown encoding: {self.encoding_name!r}")

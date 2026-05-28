@@ -78,9 +78,11 @@ fashion_suite/
 |---------|------:|----------------------------------------------------|--------------------------------------------|
 | `hur6`  | 6     | RY-RY-CNOT-RY-RY-CNOT-RY-RY                        | `U_SO4` nel repo ufficiale = Fig. 2(f)     |
 | `hur8`  | 10    | RX-RX-RZ-RZ-RX-RX-CNOT-RX-RX-RZ-RZ                 | pulito86 baseline = Fig. 2(h)              |
-| `hur9`  | 15    | U3-U3-CNOT-RY-RZ-CNOT-RY-CNOT-U3-U3 (KAK SU(4))    | `U_SU4` nel repo ufficiale = Fig. 2(i)     |
+| `hur9`  | 15    | U3-U3-CNOT-RY-RZ-CNOT-RY-CNOT-U3-U3 (KAK SU(4))    | `U_SU4` nel repo ufficiale = Fig. 2(i), variante 9b |
 
-Pooling identico per tutti: `hur_pool_pair` = CRZ(θ₀) + CRX(θ₁) open-controlled, 2 param condivisi per layer.
+Nota: per `hur9` usiamo la variante 9b del paper: pooling solo trace-out, senza gate parametrizzate.
+
+Pooling parametrico per `hur6`/`hur8`: `hur_pool_pair` = CRZ(theta0) + CRX(theta1) open-controlled, 2 param condivisi per layer.
 
 ### 5.2 Encoding ([encodings.py](encodings.py))
 
@@ -153,7 +155,7 @@ In 4 step ogni qubit della coppia riceve `4 × 2 = 8` feature dei pixel interval
 
 `FashionQCNN(ansatz_name, encoding_name)` istanzia dinamicamente:
 - `theta_conv1, theta_conv2`: shape `(n_conv,)` (6/10/15 a seconda di ansatz)
-- `theta_pool1, theta_pool2`: shape `(2,)` ciascuno (param condivisi fra le coppie del layer)
+- `theta_pool1, theta_pool2`: shape `(2,)` ciascuno per `hur6`/`hur8`; assenti per `hur9` trace-pool
 - `a_embed, c_embed`: shape `(8,)` solo per E1
 - `theta_enc`: shape `(2, 4, 4)` solo per `custom`
 - QNode su `default.qubit` con `diff_method="backprop"`, `wires = 8 (E3/custom) | 9 (E1)`
@@ -163,9 +165,11 @@ Numero parametri trainabili (per combo):
 
 | encoding | quantum (conv+pool) | encoding param | totale per ansatz n_conv |
 |----------|---------------------|----------------|--------------------------|
-| `e3`     | `2·n_conv + 4`      | 0              | hur6:16 · hur8:24 · hur9:34 |
-| `e1`     | `2·n_conv + 4`      | 16             | hur6:32 · hur8:40 · hur9:50 |
-| `custom` | `2·n_conv + 4`      | 32             | hur6:48 · hur8:56 · hur9:66 |
+| `e3`     | `2·n_conv + pool`   | 0              | hur6:16 · hur8:24 · hur9:30 |
+| `e1`     | `2·n_conv + pool`   | 16             | hur6:32 · hur8:40 · hur9:46 |
+| `custom` | `2·n_conv + pool`   | 32             | hur6:48 · hur8:56 · hur9:62 |
+
+`pool = 4` per `hur6`/`hur8`; `pool = 0` per `hur9` trace-pool.
 
 ### 5.5 Data preprocessing ([data.py:149-210](data.py#L149-L210))
 

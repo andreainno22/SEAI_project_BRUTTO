@@ -5,10 +5,14 @@ Three convolutional ansatz from the paper (Fig. 2):
   - hur_convolution_circuit6 (6 params)  = U_SO4 in the reference repo
   - hur_convolution_circuit8 (10 params) = pulito86 baseline implementation
   - hur_convolution_circuit9 (15 params) = U_SU4 (arbitrary SU(4)) in the repo
+  - custom_ansatz (11 params)            = Cartan-inspired block from
+                                           ciruito_pazzo.ipynb
 
-The pooling block (hur_pool_pair) is shared across all three ansatz, matching
-the paper's setup. Pool pairs: control qubit is traced out (in the sense of
-being discarded from subsequent layers), target qubit is retained.
+The Hur pooling block (hur_pool_pair) is shared across the Hur ansatz,
+matching the paper's setup. The custom ansatz uses the controlled-transfer
+pooling block from ciruito_pazzo.ipynb. Pool pairs: control/discard qubit is
+traced out (in the sense of being discarded from subsequent layers), target/
+keep qubit is retained.
 
 Reference repository: https://github.com/takh04/QCNN (unitary.py).
 """
@@ -82,11 +86,30 @@ def hur_convolution_circuit9(theta, wires):
     qml.U3(theta[12], theta[13], theta[14], wires=b)
 
 
-def custom_4q_ansatz(theta, wires):
-    """Placeholder for our custom 4-qubit ansatz."""
-    raise NotImplementedError(
-        "custom 4q ansatz: da implementare in seguito"
-    )
+def custom_ansatz(theta, wires):
+    """Cartan-inspired two-qubit ansatz from ciruito_pazzo.ipynb.
+
+    Structure (11 params):
+      local RZ/RY rotations -> Ising XX/YY/ZZ core -> local RY/RZ rotations
+
+    This is used as a translationally shared QCNN convolution block, exactly
+    like the Hur two-qubit ansatz functions above.
+    """
+    a, b = wires
+
+    qml.RZ(theta[0], wires=a)
+    qml.RY(theta[1], wires=a)
+    qml.RZ(theta[2], wires=b)
+    qml.RY(theta[3], wires=b)
+
+    qml.IsingXX(theta[4], wires=[a, b])
+    qml.IsingYY(theta[5], wires=[a, b])
+    qml.IsingZZ(theta[6], wires=[a, b])
+
+    qml.RY(theta[7], wires=a)
+    qml.RZ(theta[8], wires=a)
+    qml.RY(theta[9], wires=b)
+    qml.RZ(theta[10], wires=b)
 
 
 # ============================================================
@@ -122,6 +145,24 @@ def hur_pool_layer(theta_pool, pool_pairs):
     """
     for control, target in pool_pairs:
         hur_pool_pair(theta_pool, control, target)
+
+
+def transfer_pooling_pair(theta_pool, discard, keep):
+    """Controlled-transfer pooling block from ciruito_pazzo.ipynb.
+
+    Total: 3 parameters. Before `discard` is ignored by the next QCNN layer,
+    part of its information is transferred to `keep`.
+    """
+    qml.CNOT(wires=[discard, keep])
+    qml.CRY(theta_pool[0], wires=[discard, keep])
+    qml.CRZ(theta_pool[1], wires=[discard, keep])
+    qml.RY(theta_pool[2], wires=keep)
+
+
+def pooling_layer(pool_fn, theta_pool, pool_pairs):
+    """Apply a pool function on all pooling pairs with shared parameters."""
+    for discard, keep in pool_pairs:
+        pool_fn(theta_pool, discard, keep)
 
 
 # ============================================================
