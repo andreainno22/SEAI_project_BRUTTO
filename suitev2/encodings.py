@@ -1,5 +1,5 @@
 ﻿"""
-encodings.py â€” Data encoding strategies for the suite.
+encodings.py - Data encoding strategies for the suite.
 
   - encoding_e3: amplitude embedding of 256-pixel image on 8 qubits
                  (identical to hur8_two_pool_experiment baseline, + optional norm injection).
@@ -38,7 +38,7 @@ def compute_gamma(gA4_vec: torch.Tensor) -> torch.Tensor:
 
 
 # ============================================================
-# E3 â€” amplitude embedding (256 amplitudes on 8 qubits)
+# E3 - amplitude embedding (256 amplitudes on 8 qubits)
 # ============================================================
 
 def encoding_e3(x_flat, norm_angle=None, n_qubits=8):
@@ -69,7 +69,7 @@ def encoding_e3(x_flat, norm_angle=None, n_qubits=8):
 
 
 # ============================================================
-# E1 â€” affine angle embedding + global ancilla fusion (9 qubits)
+# E1 - affine angle embedding + global ancilla fusion (9 qubits)
 # ============================================================
 
 def encoding_e1(quad_means_8, gammas_4, a_embed, c_embed,
@@ -91,8 +91,8 @@ def encoding_e1(quad_means_8, gammas_4, a_embed, c_embed,
     context that influences the marginal probabilities on the output wires.
 
     Inputs:
-      quad_means_8: (B, 8) tensor â€” 8 quadrant means per image (clean, no aug)
-      gammas_4:     (B, 4) tensor â€” pre-computed (use compute_gamma outside)
+      quad_means_8: (B, 8) tensor - 8 quadrant means per image (clean, no aug)
+      gammas_4:     (B, 4) tensor - pre-computed (use compute_gamma outside)
       a_embed:      (8,) trainable affine slope
       c_embed:      (8,) trainable affine bias
       ancilla_wire: int (default 8)
@@ -111,7 +111,7 @@ def encoding_e1(quad_means_8, gammas_4, a_embed, c_embed,
             wires=i,
         )
 
-    # 1b. Global ancilla encoding on wire 8 â€” re-upload of gammas
+    # 1b. Global ancilla encoding on wire 8 - re-upload of gammas
     qml.RY(gammas_4[:, 0], wires=ancilla_wire)
     qml.RZ(gammas_4[:, 1], wires=ancilla_wire)
     qml.RX(gammas_4[:, 2], wires=ancilla_wire)
@@ -130,7 +130,7 @@ def encoding_e1(quad_means_8, gammas_4, a_embed, c_embed,
 
 
 # =============================================================================
-# Custom â€” Pairwise Fragment Encoding (Re-uploading on patches)
+# Custom - Pairwise Fragment Encoding (Re-uploading on patches)
 # =============================================================================
 
 def encoding_custom(patches, theta_enc):
@@ -138,16 +138,16 @@ def encoding_custom(patches, theta_enc):
     Custom Pairwise Fragment Encoding (data re-uploading with trainable weights).
 
     Args:
-      patches:   (B, 4, 16) tensor â€” four 8x8 patches compressed to 16 local
+      patches:   (B, 4, 16) tensor - four 8x8 patches compressed to 16 local
                  2x2 means each, already scaled by pi (from images_to_four_patches).
-      theta_enc: (2, 4, 4) trainable parameter tensor â€” groups 0/1 shared across
+      theta_enc: (2, 4, 4) trainable parameter tensor - groups 0/1 shared across
                  top/bottom image halves (patches 0+1 share group 0,
                  patches 2+3 share group 1).
 
     16x16 images are split into 4 patches (8x8).
     Each 8x8 patch is compressed into 16 local 2x2 means (see images_to_four_patches).
     These 16 features are uploaded in 4 sequential steps per qubit-pair using
-    trainable interleaved gates â€” this constitutes the data re-uploading.
+    trainable interleaved gates - this constitutes the data re-uploading.
     """
     N_ENCODING_STEPS = 4
 

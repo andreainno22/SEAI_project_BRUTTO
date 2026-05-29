@@ -1,5 +1,5 @@
 ﻿"""
-run_suite.py â€” Entry point: loops over (ansatz, encoding, seed).
+run_suite.py - Entry point: loops over (ansatz, encoding, seed).
 
 Writes one row to results/summary.csv IMMEDIATELY at the end of each run
 (not in batch at the end of the suite). If the suite crashes halfway,
@@ -18,7 +18,6 @@ Usage examples:
 
 import argparse
 import csv
-import json
 import os
 import sys
 import time
@@ -198,12 +197,6 @@ def main():
                 print(f"  !! FAILED: {type(exc).__name__}: {exc}")
                 raise
 
-            # 1. Per-run test.json (full metrics for this single run)
-            with open(os.path.join(run_dir, "test.json"), "w") as f:
-                json.dump(result, f, indent=2)
-
-            # 2. Summary row appended IMMEDIATELY (single source of truth for
-            #    post-processing â€” contains the full 4x4 confusion matrix).
             append_summary_row(summary_path, result)
 
             completed += 1

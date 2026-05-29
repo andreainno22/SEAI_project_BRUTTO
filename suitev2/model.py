@@ -1,5 +1,5 @@
 ﻿"""
-model.py â€” FashionQCNN parametric on (ansatz_name, encoding_name).
+model.py - FashionQCNN parametric on (ansatz_name, encoding_name).
 
 Architecture (matches hur8_two_pool_experiment baseline):
   - Encoding on wires 0..7 (+ ancilla wire 8 for E1)
@@ -160,7 +160,7 @@ class FashionQCNN(nn.Module):
             @qml.qnode(self.dev, interface="torch", diff_method="backprop")
             def qnode_e3(x_flat, norm_angle, theta_c1, theta_p1,
                          theta_c2, theta_p2, theta_final):
-                # norm_angle: (B,) tensor in [0, pi] â€” pre-computed L2-norm angle.
+                # norm_angle: (B,) tensor in [0, pi] - pre-computed L2-norm angle.
                 # Passed directly to enc_fn so the QNode tape stays static.
                 enc_fn(x_flat, norm_angle=norm_angle, n_qubits=8)
 
@@ -232,7 +232,7 @@ class FashionQCNN(nn.Module):
                     self.theta_final if self.theta_final is not None else x_flat.new_empty(0),
                 )
             elif self.encoding_name == "e1":
-                gammas = compute_gamma(gA4)   # (B, 4) â€” torch op OUTSIDE the QNode
+                gammas = compute_gamma(gA4)   # (B, 4) - torch op OUTSIDE the QNode
                 probs = self.qnode(
                     quad_means_8, gammas,
                     self.a_embed, self.c_embed,

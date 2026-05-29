@@ -1,4 +1,4 @@
-# Fashion-MNIST Test Suite — Struttura
+# Fashion-MNIST Test Suite - Struttura
 
 Test suite parametrica per il confronto **3 ansatz × 3 encoding (+ 1 placeholder ansatz)** su Fashion-MNIST 4-classi, basata sul paper Hur et al. 2022 e sul baseline [hur8_two_pool_experiment.ipynb](../hur8_two_pool_experiment.ipynb).
 
@@ -92,15 +92,15 @@ Pooling parametrico per `hur6`/`hur8`: `hur_pool_pair` = CRZ(theta0) + CRX(theta
 | `e1`    | 9     | 16 (`a_embed`+`c_embed`)| 8 quad_means + 4 gA4 globali |
 | `custom`| 8     | 32 (`theta_enc[2,4,4]`) | 4 patch 8×8 → 16 medie 2×2 ciascuna |
 
-**E3 dettagli** — `qml.AmplitudeEmbedding(x_flat, wires=range(8), normalize=True)`, seguito da una singola `RY(norm_angle, wires=0)` parameter-free. `norm_angle = π · ||x||₂ / √n_pixels` è calcolato in `model.forward` (fuori dal QNode per non finire sul tape PennyLane).
+**E3 dettagli** - `qml.AmplitudeEmbedding(x_flat, wires=range(8), normalize=True)`, seguito da una singola `RY(norm_angle, wires=0)` parameter-free. `norm_angle = π · ||x||₂ / √n_pixels` è calcolato in `model.forward` (fuori dal QNode per non finire sul tape PennyLane).
 
-**E1 dettagli** — replica esatta di [versione_1_test/qcnn_builder.py:165-220](../versione_1_test/qcnn_builder.py#L165-L220):
+**E1 dettagli** - replica esatta di [versione_1_test/qcnn_builder.py:165-220](../versione_1_test/qcnn_builder.py#L165-L220):
 - RY trainabile affine su wires 0–7: `RY(a_i · π·quad_means[i] + c_i)`
 - Ancilla wire 8: re-uploading di 4 gammas (= π·tanh(β·gA4)) con sandwich `RY-RZ-RX-RZ-RY(ω_fixed)-RZ-RX-RY-RZ`
 - Fusion: 8× `CNOT(8,i) - RZ(λ=π/4) - CNOT(8,i)`
 - Dopo l'encoding, wire 8 viene ignorato (trace-out implicito) e la QCNN procede su wires 0–7.
 
-**Custom dettagli — Pairwise Fragment Encoding** ([encodings.py:128-176](encodings.py#L128-L176)):
+**Custom dettagli - Pairwise Fragment Encoding** ([encodings.py:128-176](encodings.py#L128-L176)):
 
 Schema non-standard di **data re-uploading** che alterna feature dei pixel e rotazioni trainable. È strutturato per coppie disgiunte di qubit (4 coppie, 4 patch).
 
@@ -119,7 +119,7 @@ Schema non-standard di **data re-uploading** che alterna feature dei pixel e rot
 
 Le coppie di patch nella stessa metà dell'immagine **condividono lo stesso blocco di parametri trainable** `theta_enc[group]` di shape `(4, 4)`. Totale: `theta_enc` ha shape `(2, 4, 4) = 32` parametri.
 
-*Loop di encoding per ogni coppia di qubit `(a, b)`* — 4 step sequenziali, ognuno usa **una riga del grid 4×4** del patch (4 feature):
+*Loop di encoding per ogni coppia di qubit `(a, b)`* - 4 step sequenziali, ognuno usa **una riga del grid 4×4** del patch (4 feature):
 
 ```
 per s in 0..3:                       # 4 step di re-uploading
@@ -141,7 +141,7 @@ In 4 step ogni qubit della coppia riceve `4 × 2 = 8` feature dei pixel interval
 *Mapping spaziale*: lo step `s` corrisponde alla riga `s` del grid 4×4 di medie 2×2 del patch. Le feature `x0, x1` sono le 2 colonne sinistre della riga; `x2, x3` le 2 colonne destre. Quindi `qubit a` "vede" sempre la **metà sinistra** del patch (su tutte e 4 le righe), `qubit b` la **metà destra**. È una scelta deliberata per dare alle due qubit una decomposizione spaziale coerente.
 
 **Caveat e differenze rispetto al paper Hur**:
-- Il paper Hur 2022 confronta encoding **fissi** (amplitude + angle) — l'incremento di accuracy dipende solo dal scelta di ansatz/pool. Il `custom` qui introduce **parametri trainable nell'encoding** (32 in più), un design tipico dei *quantum re-uploading classifier* (Pérez-Salinas 2020) ma non valutato nel paper.
+- Il paper Hur 2022 confronta encoding **fissi** (amplitude + angle) - l'incremento di accuracy dipende solo dal scelta di ansatz/pool. Il `custom` qui introduce **parametri trainable nell'encoding** (32 in più), un design tipico dei *quantum re-uploading classifier* (Pérez-Salinas 2020) ma non valutato nel paper.
 - La condivisione di `theta_enc` **per coppie di patch** (top-half ↔ bottom-half) è arbitraria: ho scelto top/bottom perché Fashion-MNIST ha forte differenza semantica fra parte alta (collo/cuciture) e bassa (suola/cintura) di molti capi. Alternative ragionevoli (full sharing, no sharing, sharing per colonna L/R) non sono testate.
 - Il numero di "step" `N_ENCODING_STEPS=4` deriva da `16 feature / 4 feature_per_step = 4 step`. Modificare la compressione del patch (es. 8×8 → 4 medie 4×4 invece di 16 medie 2×2) richiederebbe ri-bilanciare `N_ENCODING_STEPS` e la shape di `theta_enc`.
 - Non c'è una *baseline* contro cui confrontare: il `custom` è coperto dalla suite ma **non c'è motivo a priori per aspettarsi che batta `e3`** (che ha 0 param di encoding e usa AmplitudeEmbedding "perfetto"). È un test di ipotesi: aggiungere capacità nell'encoding aiuta o solo aggiunge gradienti rumorosi?
@@ -311,7 +311,7 @@ Tre regole:
 
 ## 11. Divergenze rispetto a `suitev1`
 
-Per chi viene da `suitev1` (ablation 8-qubit 10-class amplitude+head), alcuni punti dove le due suite divergono **per design** ma con la stessa nomenclatura — segnalo per evitare confusione:
+Per chi viene da `suitev1` (ablation 8-qubit 10-class amplitude+head), alcuni punti dove le due suite divergono **per design** ma con la stessa nomenclatura - segnalo per evitare confusione:
 
 | componente | suitev1 | suitev2 |
 |---|---|---|
@@ -328,6 +328,6 @@ Per chi viene da `suitev1` (ablation 8-qubit 10-class amplitude+head), alcuni pu
 | **gA4[3]** | `(V − H)/(V + H)` su `sum(dy²)`/`sum(dx²)` (gradienti) | `(h_var − v_var)/(h_var + v_var)` su varianze riga/colonna |
 | **E3 norm injection** | `π · norm_p / Σ norm_q` (relativo fra patch) | `π · ‖x‖₂ / √n_pixels` (assoluto per-immagine) |
 | **E1 quad_means** | 8 strisce 2×16 **per patch** (4 patch × 8 = 32) | 8 blocchi 8×4 **per intera immagine** (1 × 8 = 8) |
-| **β_global** | `(1, 10, 10, 1)` su gA4 raw (mean in `[0,1]`) | `(1, 10, 10, 1)` su gA4 centrato (mean in `[-0.5, 0.5]`) — gli angoli risultanti coprono range diversi |
+| **β_global** | `(1, 10, 10, 1)` su gA4 raw (mean in `[0,1]`) | `(1, 10, 10, 1)` su gA4 centrato (mean in `[-0.5, 0.5]`) - gli angoli risultanti coprono range diversi |
 
 Non sono bug, ma se si confrontano metriche o si copia/incolla codice fra le due suite, queste differenze non sono catturate dai nomi delle variabili.

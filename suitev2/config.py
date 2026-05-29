@@ -1,5 +1,5 @@
 ﻿"""
-config.py â€” Suite-wide configuration: hyperparameters, registries, seeds.
+config.py - Suite-wide configuration: hyperparameters, registries, seeds.
 
 The suite explores the registered ansatz x encoding matrix on Fashion-MNIST 4-class.
   encodings: e3 (amplitude), e1 (affine angle + global ancilla), custom (pairwise fragment)
@@ -41,9 +41,9 @@ class BaselineConfig:
     LR: float = 1e-3            # kept for config.json logging / backward compat
     EARLY_STOP_PATIENCE: int = 10
     EARLY_STOP_MIN_REL_DELTA: float = 1e-2
-    LABEL_SMOOTHING: float = 0.1
+    LABEL_SMOOTHING: float = 0.0
 
-    # Optimizer â€” per-group AdamW learning rates & weight decays
+    # Optimizer - per-group AdamW learning rates & weight decays
     # LR_QKERNEL applies to theta_conv + theta_pool (quantum circuit params).
     # LR_EMBED   applies to a_embed/c_embed (E1) and theta_enc (custom);
     #            kept deliberately lower (factor of 10) so the encoding doesn't blow up early.

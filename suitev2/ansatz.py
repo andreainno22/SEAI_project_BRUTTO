@@ -1,5 +1,5 @@
 """
-ansatz.py â€” Convolutional and pooling building blocks for the Hur 2022 QCNN.
+ansatz.py - Convolutional and pooling building blocks for the Hur 2022 QCNN.
 
 Three convolutional ansatz from the paper (Fig. 2):
   - hur_convolution_circuit6 (6 params)  = U_SO4 in the reference repo
@@ -46,7 +46,7 @@ def hur_convolution_circuit6(theta, wires):
 
 
 def hur_convolution_circuit8(theta, wires):
-    """Hur paper Circuit 8 â€” identical to hur8_two_pool_experiment baseline.
+    """Hur paper Circuit 8 - identical to hur8_two_pool_experiment baseline.
 
     Structure (10 params):
       RX(t0) -- RZ(t2) -- RX(t4) -- CNOT -- RX(t6) -- RZ(t8)
@@ -69,7 +69,7 @@ def hur_convolution_circuit8(theta, wires):
 def hur_convolution_circuit9(theta, wires):
     """Hur paper Circuit 9 = U_SU4 in the reference repo.
 
-    Structure (15 params) â€” KAK-style parameterization of arbitrary SU(4):
+    Structure (15 params) - KAK-style parameterization of arbitrary SU(4):
       U3(t0,t1,t2)  -- CNOT(a,b) -- RY(t6) -- CNOT(b,a) -- RY(t8) -- CNOT(a,b) -- U3(t9,t10,t11)
       U3(t3,t4,t5)               -- RZ(t7) --                                     U3(t12,t13,t14)
     """

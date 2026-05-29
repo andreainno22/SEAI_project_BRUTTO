@@ -1,5 +1,5 @@
 ﻿"""
-train.py â€” Loss, metrics, per-run training, training extension.
+train.py - Loss, metrics, per-run training, training extension.
 
 Each run saves:
   - config.json   : run hyperparameters
@@ -328,7 +328,7 @@ def load_last_state(run_dir, model, optimizer):
         optimizer.load_state_dict(ckpt["optimizer_state"])
     except Exception:
         # Optimizer state incompatible (e.g. old single-group Adam checkpoint);
-        # continue with a fresh optimizer â€” model weights are still restored.
+        # continue with a fresh optimizer - model weights are still restored.
         pass
     scheduler_T0 = int(ckpt.get("scheduler_T0", max(1, BASELINE.EPOCHS // 3)))
     return int(ckpt["last_epoch"]), float(ckpt["best_val_loss"]), scheduler_T0
@@ -585,7 +585,7 @@ def evaluate_test_chunk(run_dir, extra_per_class, chunk_id, log_fn=print):
     """Evaluate the best-state model on a NEW test chunk (offset = base + previous extensions).
 
     The offset is automatically tracked: the chunk starts at `test_per_class`
-    used in the base config (no support for arbitrary offsets â€” chunks must
+    used in the base config (no support for arbitrary offsets - chunks must
     be contiguous, added sequentially).
 
     Caller (extend_run.py) is responsible for choosing chunk_id consistently

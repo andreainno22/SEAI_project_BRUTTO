@@ -1,5 +1,5 @@
 ﻿"""
-extend_run.py â€” Two extension modes for a finished suite:
+extend_run.py - Two extension modes for a finished suite:
 
   1) TRAIN EXTENSION (--mode train --epochs N)
      For each existing run dir (matching the filters), load last_state.pt,
@@ -146,7 +146,7 @@ def mode_test(args, runs, summary_path):
     # Group runs by (ansatz, encoding, seed) and read existing summary to find next chunk
     summary_rows = read_summary_rows(summary_path)
 
-    # Verify all runs share the same set of (ansatz, encoding) â€” they should,
+    # Verify all runs share the same set of (ansatz, encoding) - they should,
     # since "test extension always on all configs together".
     if args.runs:
         sys.exit("--runs is not allowed in test mode (must extend all configs together)")

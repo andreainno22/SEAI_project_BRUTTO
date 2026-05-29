@@ -1,5 +1,5 @@
 ﻿"""
-data.py â€” Fashion-MNIST loader + feature extraction for E1.
+data.py - Fashion-MNIST loader + feature extraction for E1.
 
 The dataset is filtered to 4 classes (T-shirt, Trouser, Sneaker, Bag) and
 resized to 16x16. For E3 we feed flat 256-d amplitudes to AmplitudeEmbedding;
@@ -7,7 +7,7 @@ for E1 we additionally precompute quad_means_8 (8 quadrant means) and gA4
 (4 global statistics) per image.
 
 The DataLoader returns a tuple (x_flat, quad_means_8, gA4, y) so the same
-loader can serve both encodings â€” the model picks which fields to use.
+loader can serve both encodings - the model picks which fields to use.
 """
 
 import numpy as np
@@ -28,7 +28,7 @@ class RemapFashionMNIST(Dataset):
     Args:
       base_dataset:    The primary Subset.
                        Its images are used for x_flat (the raw pixel vector sent to E3/custom).
-      class_map:       Dict mapping original label â†’ remapped label.
+      class_map:       Dict mapping original label → remapped label.
       feature_dataset: Optional Subset sharing the same indices as base_dataset,
                        kept for compatibility with older augmentation experiments.
     """
@@ -43,7 +43,7 @@ class RemapFashionMNIST(Dataset):
 
     def __getitem__(self, idx):
         x, y   = self.base_dataset[idx]          # x: (1, 16, 16)
-        x_flat = x.reshape(-1)                    # (256,)  â€” used by E3 / custom
+        x_flat = x.reshape(-1)                    # (256,)  - used by E3 / custom
 
         feat_img = x
         if self.feature_dataset is not None:
@@ -111,10 +111,10 @@ def extract_gA4(x_img: torch.Tensor) -> torch.Tensor:
       x_img: (1, 16, 16) tensor (grayscale, pixels in [0, 1]).
     Returns:
       gA4: (4,) tensor.
-        [0] mean - 0.5          â€” centred mean, in [-0.5, 0.5]
-        [1] variance            â€” in [0, 0.25]
-        [2] gradient energy     â€” mean squared first-difference, in [0, 1]
-        [3] normalised H-V asym â€” (h_var - v_var) / (h_var + v_var + eps),
+        [0] mean - 0.5          - centred mean, in [-0.5, 0.5]
+        [1] variance            - in [0, 0.25]
+        [2] gradient energy     - mean squared first-difference, in [0, 1]
+        [3] normalised H-V asym - (h_var - v_var) / (h_var + v_var + eps),
                                   in [-1, 1]; normalisation removes the
                                   dependency on overall image intensity.
     """
@@ -189,7 +189,7 @@ def load_test_extension(offset_per_class, n_per_class, seed=42, batch_size=None)
 
     Uses the same per-class shuffle (seed-controlled) as `load_data`, so picking
     `offset_per_class=N, n_per_class=M` returns indices [N:N+M] of the shuffled
-    list for each class â€” disjoint from `load_data`'s test set when
+    list for each class - disjoint from `load_data`'s test set when
     `N >= base_test_per_class`.
 
     Caller is responsible for picking `offset_per_class` so it doesn't overlap
