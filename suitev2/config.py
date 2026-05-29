@@ -11,7 +11,7 @@ from typing import Callable, Optional
 
 
 # ============================================================
-# Baseline hyperparameters (from pulito86.ipynb)
+# Baseline hyperparameters (from hur8_two_pool_experiment.ipynb)
 # ============================================================
 
 @dataclass

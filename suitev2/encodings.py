@@ -2,7 +2,7 @@
 encodings.py â€” Data encoding strategies for the suite.
 
   - encoding_e3: amplitude embedding of 256-pixel image on 8 qubits
-                 (identical to pulito86 baseline, + optional norm injection).
+                 (identical to hur8_two_pool_experiment baseline, + optional norm injection).
   - encoding_e1: trainable affine angle embedding on 8 qubits + a global
                  ancilla (wire 8) re-uploading 4 global statistics, fused
                  to the local wires via CNOT-RZ-CNOT.
@@ -53,7 +53,7 @@ def encoding_e3(x_flat, norm_angle=None, n_qubits=8):
         norm_angle = pi * ||x_flat||_2 / sqrt(n_pixels)
 
     so that a blank image gives 0 and a fully-saturated image gives ~pi.
-    Matches pulito86's encoding step.
+    Matches hur8_two_pool_experiment's encoding step.
 
     Note: the norm-injection IDEA is borrowed from suitev1, but the formula
     here is intentionally different.  suitev1 processes 4 patches per image

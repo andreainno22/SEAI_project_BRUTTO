@@ -3,14 +3,14 @@ ansatz.py â€” Convolutional and pooling building blocks for the Hur 2022 QC
 
 Three convolutional ansatz from the paper (Fig. 2):
   - hur_convolution_circuit6 (6 params)  = U_SO4 in the reference repo
-  - hur_convolution_circuit8 (10 params) = pulito86 baseline implementation
+  - hur_convolution_circuit8 (10 params) = hur8_two_pool_experiment baseline implementation
   - hur_convolution_circuit9 (15 params) = U_SU4 (arbitrary SU(4)) in the repo
   - custom_ansatz (11 params)            = Cartan-inspired block from
-                                           ciruito_pazzo.ipynb
+                                           cartan_pooling_experiment.ipynb
 
 The Hur pooling block (hur_pool_pair) is shared across the Hur ansatz,
 matching the paper's setup. The custom ansatz uses the controlled-transfer
-pooling block from ciruito_pazzo.ipynb. Pool pairs: control/discard qubit is
+pooling block from cartan_pooling_experiment.ipynb. Pool pairs: control/discard qubit is
 traced out (in the sense of being discarded from subsequent layers), target/
 keep qubit is retained.
 
@@ -46,7 +46,7 @@ def hur_convolution_circuit6(theta, wires):
 
 
 def hur_convolution_circuit8(theta, wires):
-    """Hur paper Circuit 8 â€” identical to pulito86 baseline.
+    """Hur paper Circuit 8 â€” identical to hur8_two_pool_experiment baseline.
 
     Structure (10 params):
       RX(t0) -- RZ(t2) -- RX(t4) -- CNOT -- RX(t6) -- RZ(t8)
@@ -87,7 +87,7 @@ def hur_convolution_circuit9(theta, wires):
 
 
 def custom_ansatz(theta, wires):
-    """Cartan-inspired two-qubit ansatz from ciruito_pazzo.ipynb.
+    """Cartan-inspired two-qubit ansatz from cartan_pooling_experiment.ipynb.
 
     Structure (11 params):
       local RZ/RY rotations -> Ising XX/YY/ZZ core -> local RY/RZ rotations
@@ -148,7 +148,7 @@ def hur_pool_layer(theta_pool, pool_pairs):
 
 
 def transfer_pooling_pair(theta_pool, discard, keep):
-    """Controlled-transfer pooling block from ciruito_pazzo.ipynb.
+    """Controlled-transfer pooling block from cartan_pooling_experiment.ipynb.
 
     Total: 3 parameters. Before `discard` is ignored by the next QCNN layer,
     part of its information is transferred to `keep`.

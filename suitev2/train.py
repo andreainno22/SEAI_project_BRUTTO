@@ -47,7 +47,7 @@ def set_seed(seed: int):
 # ============================================================
 
 def probability_cross_entropy_loss(probs, labels, eps=1e-8, label_smoothing=0.0):
-    """Cross-entropy directly on measurement probabilities (pulito86 baseline).
+    """Cross-entropy directly on measurement probabilities (hur8_two_pool_experiment baseline).
 
     Label smoothing follows the standard formulation (Szegedy et al. 2016):
 

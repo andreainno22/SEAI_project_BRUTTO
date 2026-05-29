@@ -1,13 +1,13 @@
 # Fashion-MNIST Test Suite — Struttura
 
-Test suite parametrica per il confronto **3 ansatz × 3 encoding (+ 1 placeholder ansatz)** su Fashion-MNIST 4-classi, basata sul paper Hur et al. 2022 e sul baseline [pulito86.ipynb](../pulito86.ipynb).
+Test suite parametrica per il confronto **3 ansatz × 3 encoding (+ 1 placeholder ansatz)** su Fashion-MNIST 4-classi, basata sul paper Hur et al. 2022 e sul baseline [hur8_two_pool_experiment.ipynb](../hur8_two_pool_experiment.ipynb).
 
 ## 1. Matrice esperimenti
 
 |ansatz \ encoding   | e1 (9q ancilla)  | e3 (8q amp.)       | custom (8q re-up.)  |
 |--------------------|------------------|--------------------|---------------------|
 | **hur6** (6 par)   | ✅               | ✅                  | ✅                  |
-| **hur8** (10 par)  | ✅               | ✅ (= pulito86)     | ✅                  |
+| **hur8** (10 par)  | ✅               | ✅ (= hur8_two_pool_experiment)     | ✅                  |
 | **hur9** (15 par)  | ✅               | ✅                  | ✅                  |
 | **custom4q**       | ⏭️ SKIP         | ⏭️ SKIP            | ⏭️ SKIP            |
 
@@ -27,7 +27,7 @@ Test suite parametrica per il confronto **3 ansatz × 3 encoding (+ 1 placeholde
 
 ## 3. Architettura QCNN
 
-Identica a pulito86 (nessuna testa classica, readout su 2 qubit):
+Identica a hur8_two_pool_experiment (nessuna testa classica, readout su 2 qubit):
 
 ```
 Encoding → Conv₁ (wires 0..7) → Pool 8→4 → Conv₂ (wires [0,2,4,6]) → Pool 4→2 → probs(wires=[0,4])
@@ -77,7 +77,7 @@ fashion_suite/
 | nome    | param | struttura                                          | corrispondenza paper/repo                  |
 |---------|------:|----------------------------------------------------|--------------------------------------------|
 | `hur6`  | 6     | RY-RY-CNOT-RY-RY-CNOT-RY-RY                        | `U_SO4` nel repo ufficiale = Fig. 2(f)     |
-| `hur8`  | 10    | RX-RX-RZ-RZ-RX-RX-CNOT-RX-RX-RZ-RZ                 | pulito86 baseline = Fig. 2(h)              |
+| `hur8`  | 10    | RX-RX-RZ-RZ-RX-RX-CNOT-RX-RX-RZ-RZ                 | hur8_two_pool_experiment baseline = Fig. 2(h)              |
 | `hur9`  | 15    | U3-U3-CNOT-RY-RZ-CNOT-RY-CNOT-U3-U3 (KAK SU(4))    | `U_SU4` nel repo ufficiale = Fig. 2(i), variante 9b |
 
 Nota: per `hur9` usiamo la variante 9b del paper: pooling solo trace-out, senza gate parametrizzate.
@@ -159,7 +159,7 @@ In 4 step ogni qubit della coppia riceve `4 × 2 = 8` feature dei pixel interval
 - `a_embed, c_embed`: shape `(8,)` solo per E1
 - `theta_enc`: shape `(2, 4, 4)` solo per `custom`
 - QNode su `default.qubit` con `diff_method="backprop"`, `wires = 8 (E3/custom) | 9 (E1)`
-- Init: `init_scale * randn` (default `0.01`, come pulito86)
+- Init: `init_scale * randn` (default `0.01`, come hur8_two_pool_experiment)
 
 Numero parametri trainabili (per combo):
 

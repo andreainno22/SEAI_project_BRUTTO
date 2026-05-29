@@ -1,7 +1,7 @@
 ﻿"""
 model.py â€” FashionQCNN parametric on (ansatz_name, encoding_name).
 
-Architecture (matches pulito86 baseline):
+Architecture (matches hur8_two_pool_experiment baseline):
   - Encoding on wires 0..7 (+ ancilla wire 8 for E1)
   - Conv layer 1 on wires 0..7  (same ansatz across all pairs)
   - Pool 8 -> 4 on (1,0),(3,2),(5,4),(7,6); retained wires = [0,2,4,6]
@@ -44,7 +44,7 @@ WIRES_8 = [0, 1, 2, 3, 4, 5, 6, 7]
 WIRES_4 = [0, 2, 4, 6]
 OUTPUT_WIRES = [0, 4]
 TRACE_POOL_ANSATZ = {"hur9"}  # Hur et al. circuit 9b: trace-out only, no pool gates.
-FINAL_CLASSIFIER_ANSATZ = {"custom_ansatz"}  # Matches ciruito_pazzo.ipynb.
+FINAL_CLASSIFIER_ANSATZ = {"custom_ansatz"}  # Matches cartan_pooling_experiment.ipynb.
 
 
 def patch_8x8_to_2x2_means(patch):
@@ -75,7 +75,7 @@ class FashionQCNN(nn.Module):
     Args:
       ansatz_name: key in ANSATZ_REGISTRY ("hur6", "hur8", "hur9", ...)
       encoding_name: key in ENCODING_REGISTRY ("e1", "e3", ...)
-      init_scale: std for near-zero random param init (default 0.01 like pulito86).
+      init_scale: std for near-zero random param init (default 0.01 like hur8_two_pool_experiment).
     """
 
     def __init__(self, ansatz_name: str, encoding_name: str, init_scale: float = 0.01):
