@@ -218,36 +218,38 @@ class FashionQCNN(nn.Module):
         For E3: only x_flat (B, 256) is used.
         For E1: only quad_means_8 (B, 8) and gA4 (B, 4) are used.
         """
-        if self.encoding_name == "e3":
-            # Compute the L2-norm angle outside the QNode (torch op, not on the tape).
-            # norm_angle in [0, pi]: blank image -> 0, fully-saturated image -> ~pi.
-            # Dividing by sqrt(n_pixels) normalises across different image sizes.
-            norm_angle = math.pi * x_flat.norm(dim=-1) / math.sqrt(float(x_flat.shape[1]))
-            probs = self.qnode(
-                x_flat, norm_angle,
-                self.theta_conv1, self.theta_pool1,
-                self.theta_conv2, self.theta_pool2,
-                self.theta_final if self.theta_final is not None else x_flat.new_empty(0),
-            )
-        elif self.encoding_name == "e1":
-            gammas = compute_gamma(gA4)   # (B, 4) â€” torch op OUTSIDE the QNode
-            probs = self.qnode(
-                quad_means_8, gammas,
-                self.a_embed, self.c_embed,
-                self.theta_conv1, self.theta_pool1,
-                self.theta_conv2, self.theta_pool2,
-                self.theta_final if self.theta_final is not None else x_flat.new_empty(0),
-            )
-        elif self.encoding_name == "custom":
-            patches = images_to_four_patches(x_flat)
-            probs = self.qnode(
-                patches, self.theta_enc,
-                self.theta_conv1, self.theta_pool1,
-                self.theta_conv2, self.theta_pool2,
-                self.theta_final if self.theta_final is not None else x_flat.new_empty(0),
-            )
-        else:
-            raise ValueError(f"Unknown encoding: {self.encoding_name!r}")
+        device = x_flat.device
+        with torch.device(device):
+            if self.encoding_name == "e3":
+                # Compute the L2-norm angle outside the QNode (torch op, not on the tape).
+                # norm_angle in [0, pi]: blank image -> 0, fully-saturated image -> ~pi.
+                # Dividing by sqrt(n_pixels) normalises across different image sizes.
+                norm_angle = math.pi * x_flat.norm(dim=-1) / math.sqrt(float(x_flat.shape[1]))
+                probs = self.qnode(
+                    x_flat, norm_angle,
+                    self.theta_conv1, self.theta_pool1,
+                    self.theta_conv2, self.theta_pool2,
+                    self.theta_final if self.theta_final is not None else x_flat.new_empty(0),
+                )
+            elif self.encoding_name == "e1":
+                gammas = compute_gamma(gA4)   # (B, 4) â€” torch op OUTSIDE the QNode
+                probs = self.qnode(
+                    quad_means_8, gammas,
+                    self.a_embed, self.c_embed,
+                    self.theta_conv1, self.theta_pool1,
+                    self.theta_conv2, self.theta_pool2,
+                    self.theta_final if self.theta_final is not None else x_flat.new_empty(0),
+                )
+            elif self.encoding_name == "custom":
+                patches = images_to_four_patches(x_flat)
+                probs = self.qnode(
+                    patches, self.theta_enc,
+                    self.theta_conv1, self.theta_pool1,
+                    self.theta_conv2, self.theta_pool2,
+                    self.theta_final if self.theta_final is not None else x_flat.new_empty(0),
+                )
+            else:
+                raise ValueError(f"Unknown encoding: {self.encoding_name!r}")
 
         return probs.float()
 
