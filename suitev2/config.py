@@ -49,8 +49,8 @@ class BaselineConfig:
     #            kept deliberately lower (factor of 10) so the encoding doesn't blow up early.
     LR_QKERNEL:  float = 1e-3
     LR_EMBED:    float = 1e-3
-    WD_QKERNEL:  float = 1e-5
-    WD_EMBED:    float = 1e-5
+    WD_QKERNEL:  float = 0.0
+    WD_EMBED:    float = 0.0
 
     # E1-specific (replicated from versione_1_test/qcnn_builder.py)
     E1_INIT_A: float = 0.2

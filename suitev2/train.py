@@ -322,7 +322,7 @@ def load_last_state(run_dir, model, optimizer):
     path = os.path.join(run_dir, "last_state.pt")
     if not os.path.exists(path):
         raise FileNotFoundError(f"last_state.pt not found in {run_dir!r}")
-    ckpt = torch.load(path, weights_only=True)
+    ckpt = torch.load(path, map_location="cpu", weights_only=True)
     model.load_state_dict(ckpt["model_state"])
     try:
         optimizer.load_state_dict(ckpt["optimizer_state"])
@@ -338,7 +338,7 @@ def load_best_state(run_dir, model):
     path = os.path.join(run_dir, "best_state.pt")
     if not os.path.exists(path):
         raise FileNotFoundError(f"best_state.pt not found in {run_dir!r}")
-    ckpt = torch.load(path, weights_only=True)
+    ckpt = torch.load(path, map_location="cpu", weights_only=True)
     model.load_state_dict(ckpt["model_state"])
 
 
