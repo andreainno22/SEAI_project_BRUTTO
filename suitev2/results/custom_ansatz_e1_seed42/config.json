@@ -1,5 +1,5 @@
 {
-  "ansatz": "hur8",
+  "ansatz": "custom_ansatz",
   "encoding": "e1",
   "seed": 42,
   "epochs_initial": 20,
@@ -13,8 +13,8 @@
   "val_per_class": 500,
   "test_per_class": 500,
   "n_qubits": 9,
-  "n_conv_params": 10,
-  "n_pool_params": 2,
-  "use_final_classifier": false,
-  "n_trainable_params": 40
+  "n_conv_params": 11,
+  "n_pool_params": 3,
+  "use_final_classifier": true,
+  "n_trainable_params": 55
 }
