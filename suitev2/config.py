@@ -14,12 +14,13 @@ from typing import Callable, Optional
 # Baseline hyperparameters (from hur8_two_pool_experiment.ipynb)
 # ============================================================
 
+
 @dataclass
 class BaselineConfig:
     # Data
     IMG_SIZE: int = 16
     N_CLASSES: int = 4
-    FASHION_CLASSES: tuple = (0, 1, 7, 8)   # T-shirt/top, Trouser, Sneaker, Bag
+    FASHION_CLASSES: tuple = (0, 1, 7, 8)  # T-shirt/top, Trouser, Sneaker, Bag
     CLASS_MAP: dict = field(default_factory=lambda: {0: 0, 1: 1, 7: 2, 8: 3})
 
     # Split allineato esattamente al paper Hur 2022 (Sec. IV A):
@@ -31,26 +32,26 @@ class BaselineConfig:
     # (500/classe), pratica standard per early stopping/best checkpoint.
 
     # Fashion-MNIST ha 6000 immagini per train + val e 1000 per test per classe.
-    TRAIN_PER_CLASS: int = 3000     # 4 * 3000 = 12000 total
-    VAL_PER_CLASS:   int = 500       # 4 * 500  =  2000 total
-    TEST_PER_CLASS:  int = 500       # 4 * 500  =  2000 total
+    TRAIN_PER_CLASS: int = 3000  # 4 * 3000 = 12000 total
+    VAL_PER_CLASS: int = 500  # 4 * 500  =  2000 total
+    TEST_PER_CLASS: int = 500  # 4 * 500  =  2000 total
 
     # Training
     BATCH_SIZE: int = 24
     EPOCHS: int = 20
-    LR: float = 1e-3            # kept for config.json logging / backward compat
+    LR: float = 1e-3  # kept for config.json logging / backward compat
     EARLY_STOP_PATIENCE: int = 10
     EARLY_STOP_MIN_REL_DELTA: float = 1e-2
-    LABEL_SMOOTHING: float = 0.0
+    LABEL_SMOOTHING: float = 0.1
 
     # Optimizer - per-group AdamW learning rates & weight decays
     # LR_QKERNEL applies to theta_conv + theta_pool (quantum circuit params).
     # LR_EMBED   applies to a_embed/c_embed (E1) and theta_enc (custom);
     #            kept deliberately lower (factor of 10) so the encoding doesn't blow up early.
-    LR_QKERNEL:  float = 1e-3
-    LR_EMBED:    float = 1e-3
-    WD_QKERNEL:  float = 0.0
-    WD_EMBED:    float = 0.0
+    LR_QKERNEL: float = 1e-3
+    LR_EMBED: float = 1e-3
+    WD_QKERNEL: float = 0.0
+    WD_EMBED: float = 0.0
 
     # E1-specific (replicated from versione_1_test/qcnn_builder.py)
     E1_INIT_A: float = 0.2
@@ -97,24 +98,34 @@ def populate_registries():
     from suitev2 import encodings as _encodings
 
     ANSATZ_REGISTRY.clear()
-    ANSATZ_REGISTRY.update({
-        "hur6":          (_ansatz.hur_convolution_circuit6, 6,  _ansatz.hur_pool_pair, 2),
-        "hur8":          (_ansatz.hur_convolution_circuit8, 10, _ansatz.hur_pool_pair, 2),
-        "hur9":          (_ansatz.hur_convolution_circuit9, 15, _ansatz.hur_pool_pair, 2),
-        "custom_ansatz": (_ansatz.custom_ansatz,              11, _ansatz.transfer_pooling_pair, 3),
-    })
+    ANSATZ_REGISTRY.update(
+        {
+            "hur6": (_ansatz.hur_convolution_circuit6, 6, _ansatz.hur_pool_pair, 2),
+            "hur8": (_ansatz.hur_convolution_circuit8, 10, _ansatz.hur_pool_pair, 2),
+            "hur9": (_ansatz.hur_convolution_circuit9, 15, _ansatz.hur_pool_pair, 2),
+            "custom_ansatz": (
+                _ansatz.custom_ansatz,
+                11,
+                _ansatz.transfer_pooling_pair,
+                3,
+            ),
+        }
+    )
 
     ENCODING_REGISTRY.clear()
-    ENCODING_REGISTRY.update({
-        "e1":    (_encodings.encoding_e1, 9, True),    # 9 wires, has trainable params
-        "e3":    (_encodings.encoding_e3, 8, False),   # 8 wires, no trainable params
-        "custom": (_encodings.encoding_custom, 8, True),
-    })
+    ENCODING_REGISTRY.update(
+        {
+            "e1": (_encodings.encoding_e1, 9, True),  # 9 wires, has trainable params
+            "e3": (_encodings.encoding_e3, 8, False),  # 8 wires, no trainable params
+            "custom": (_encodings.encoding_custom, 8, True),
+        }
+    )
 
 
 # ============================================================
 # Suite combinations
 # ============================================================
+
 
 def all_combos():
     """Return list of all (ansatz_name, encoding_name) combinations.
@@ -141,4 +152,3 @@ def combo_is_runnable(ansatz_name: str, encoding_name: str) -> tuple:
     if ENCODING_REGISTRY[encoding_name][0] is None:
         return False, f"encoding '{encoding_name}' is a placeholder"
     return True, None
-
