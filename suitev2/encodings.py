@@ -8,7 +8,8 @@ encodings.py - Data encoding strategies for the suite.
                  to the local wires via CNOT-RZ-CNOT.
                  Replicates the E1 of versione_1_test/qcnn_builder.py
                  (wires 0..7 data, wire 8 ancilla; 9 qubits total).
-  - encoding_custom: pairwise fragment encoding with trainable weights.
+  - encoding_custom: learned multiaxis pairwise fragment encoding with
+                     affine per-feature angle maps.
 
 All encoding functions assume the QNode has wires properly allocated
 (8 for E3, 9 for E1). Trainable parameters (a_embed, c_embed for E1)
@@ -130,24 +131,32 @@ def encoding_e1(quad_means_8, gammas_4, a_embed, c_embed,
 
 
 # =============================================================================
-# Custom - Pairwise Fragment Encoding (Re-uploading on patches)
+# Custom - Learned Multiaxis Pairwise Fragment Encoding
 # =============================================================================
 
 def encoding_custom(patches, theta_enc):
     """
-    Custom Pairwise Fragment Encoding (data re-uploading with trainable weights).
+    Custom Pairwise Fragment Encoding from nuovo_encoding_pazzo.ipynb.
 
     Args:
       patches:   (B, 4, 16) tensor - four 8x8 patches compressed to 16 local
                  2x2 means each, already scaled by pi (from images_to_four_patches).
-      theta_enc: (2, 4, 4) trainable parameter tensor - groups 0/1 shared across
+      theta_enc: (2, 4, 12) trainable parameter tensor - groups 0/1 shared across
                  top/bottom image halves (patches 0+1 share group 0,
                  patches 2+3 share group 1).
 
     16x16 images are split into 4 patches (8x8).
     Each 8x8 patch is compressed into 16 local 2x2 means (see images_to_four_patches).
-    These 16 features are uploaded in 4 sequential steps per qubit-pair using
-    trainable interleaved gates - this constitutes the data re-uploading.
+    These 16 features are uploaded in 4 sequential steps per qubit pair.
+
+    Per step, theta_enc_group[s] is laid out as:
+      [0,2,4,6]   learned scales for x0,x1,x2,x3
+      [1,3,5,7]   learned biases for x0,x1,x2,x3
+      [8,9,10,11] trainable local-processing angles
+
+    The data injection uses multiple axes:
+      RY(z0), RZ(z1) on the first qubit and RX(z2), RY(z3) on the second,
+    followed by a lightweight trainable entangling block.
     """
     N_ENCODING_STEPS = 4
 
@@ -160,18 +169,23 @@ def encoding_custom(patches, theta_enc):
             x2 = patch[:, base + 2]
             x3 = patch[:, base + 3]
 
-            qml.RY(x0, wires=a)
-            qml.RZ(x1, wires=a)
-            qml.RY(x2, wires=b)
-            qml.RZ(x3, wires=b)
+            z0 = theta_enc_group[s, 0] * x0 + theta_enc_group[s, 1]
+            z1 = theta_enc_group[s, 2] * x1 + theta_enc_group[s, 3]
+            z2 = theta_enc_group[s, 4] * x2 + theta_enc_group[s, 5]
+            z3 = theta_enc_group[s, 6] * x3 + theta_enc_group[s, 7]
+
+            qml.RY(z0, wires=a)
+            qml.RZ(z1, wires=a)
+            qml.RX(z2, wires=b)
+            qml.RY(z3, wires=b)
 
             qml.CNOT(wires=[a, b])
-            qml.RY(theta_enc_group[s, 0], wires=a)
-            qml.RY(theta_enc_group[s, 1], wires=b)
+            qml.RY(theta_enc_group[s, 8], wires=a)
+            qml.RZ(theta_enc_group[s, 9], wires=b)
 
             qml.CNOT(wires=[b, a])
-            qml.RZ(theta_enc_group[s, 2], wires=a)
-            qml.RZ(theta_enc_group[s, 3], wires=b)
+            qml.RX(theta_enc_group[s, 10], wires=a)
+            qml.RY(theta_enc_group[s, 11], wires=b)
 
     pair_wires = [(0, 1), (2, 3), (4, 5), (6, 7)]
     for patch_idx, wires in enumerate(pair_wires):

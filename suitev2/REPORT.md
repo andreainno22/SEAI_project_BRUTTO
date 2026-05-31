@@ -90,7 +90,7 @@ Pooling parametrico per `hur6`/`hur8`: `hur_pool_pair` = CRZ(theta0) + CRX(theta
 |---------|------:|-------------------------|------------------------------|
 | `e3`    | 8     | 0                       | 256 pixel (amplitude)        |
 | `e1`    | 9     | 16 (`a_embed`+`c_embed`)| 8 quad_means + 4 gA4 globali |
-| `custom`| 8     | 32 (`theta_enc[2,4,4]`) | 4 patch 8×8 → 16 medie 2×2 ciascuna |
+| `custom`| 8     | 96 (`theta_enc[2,4,12]`) | 4 patch 8×8 → 16 medie 2×2 ciascuna |
 
 **E3 dettagli** - `qml.AmplitudeEmbedding(x_flat, wires=range(8), normalize=True)`, seguito da una singola `RY(norm_angle, wires=0)` parameter-free. `norm_angle = π · ||x||₂ / √n_pixels` è calcolato in `model.forward` (fuori dal QNode per non finire sul tape PennyLane).
 
@@ -117,7 +117,7 @@ Schema non-standard di **data re-uploading** che alterna feature dei pixel e rot
 | 2         | BL       | (4, 5)      | 1 (bottom-half)  |
 | 3         | BR       | (6, 7)      | 1 (bottom-half)  |
 
-Le coppie di patch nella stessa metà dell'immagine **condividono lo stesso blocco di parametri trainable** `theta_enc[group]` di shape `(4, 4)`. Totale: `theta_enc` ha shape `(2, 4, 4) = 32` parametri.
+Le coppie di patch nella stessa metà dell'immagine **condividono lo stesso blocco di parametri trainable** `theta_enc[group]` di shape `(4, 12)`. Totale: `theta_enc` ha shape `(2, 4, 12) = 96` parametri.
 
 *Loop di encoding per ogni coppia di qubit `(a, b)`* - 4 step sequenziali, ognuno usa **una riga del grid 4×4** del patch (4 feature):
 
@@ -126,22 +126,27 @@ per s in 0..3:                       # 4 step di re-uploading
   base = 4*s
   x0, x1, x2, x3 = patch[base:base+4]   # 4 medie 2x2 della riga s
 
-  RY(x0, a); RZ(x1, a)                # 2 feature → qubit a
-  RY(x2, b); RZ(x3, b)                # 2 feature → qubit b
+  z0 = theta_enc_group[s, 0] * x0 + theta_enc_group[s, 1]
+  z1 = theta_enc_group[s, 2] * x1 + theta_enc_group[s, 3]
+  z2 = theta_enc_group[s, 4] * x2 + theta_enc_group[s, 5]
+  z3 = theta_enc_group[s, 6] * x3 + theta_enc_group[s, 7]
+
+  RY(z0, a); RZ(z1, a)                # 2 feature affini → qubit a
+  RX(z2, b); RY(z3, b)                # 2 feature affini → qubit b
   CNOT(a, b)
-  RY(theta_enc_group[s, 0], a)        # 2 rot trainable
-  RY(theta_enc_group[s, 1], b)
+  RY(theta_enc_group[s, 8], a)
+  RZ(theta_enc_group[s, 9], b)
   CNOT(b, a)
-  RZ(theta_enc_group[s, 2], a)        # 2 rot trainable
-  RZ(theta_enc_group[s, 3], b)
+  RX(theta_enc_group[s, 10], a)
+  RY(theta_enc_group[s, 11], b)
 ```
 
-In 4 step ogni qubit della coppia riceve `4 × 2 = 8` feature dei pixel intervallate da `4 × 2 = 8` rotazioni trainable (ring CNOT-RY × CNOT-RZ).
+In 4 step ogni qubit della coppia riceve `4 × 2 = 8` feature dei pixel tramite mappe affini trainabili, intervallate da `4 × 2 = 8` rotazioni locali trainable.
 
 *Mapping spaziale*: lo step `s` corrisponde alla riga `s` del grid 4×4 di medie 2×2 del patch. Le feature `x0, x1` sono le 2 colonne sinistre della riga; `x2, x3` le 2 colonne destre. Quindi `qubit a` "vede" sempre la **metà sinistra** del patch (su tutte e 4 le righe), `qubit b` la **metà destra**. È una scelta deliberata per dare alle due qubit una decomposizione spaziale coerente.
 
 **Caveat e differenze rispetto al paper Hur**:
-- Il paper Hur 2022 confronta encoding **fissi** (amplitude + angle) - l'incremento di accuracy dipende solo dal scelta di ansatz/pool. Il `custom` qui introduce **parametri trainable nell'encoding** (32 in più), un design tipico dei *quantum re-uploading classifier* (Pérez-Salinas 2020) ma non valutato nel paper.
+- Il paper Hur 2022 confronta encoding **fissi** (amplitude + angle) - l'incremento di accuracy dipende solo dal scelta di ansatz/pool. Il `custom` qui introduce **parametri trainable nell'encoding** (96 in più), un design tipico dei *quantum re-uploading classifier* (Pérez-Salinas 2020) ma non valutato nel paper.
 - La condivisione di `theta_enc` **per coppie di patch** (top-half ↔ bottom-half) è arbitraria: ho scelto top/bottom perché Fashion-MNIST ha forte differenza semantica fra parte alta (collo/cuciture) e bassa (suola/cintura) di molti capi. Alternative ragionevoli (full sharing, no sharing, sharing per colonna L/R) non sono testate.
 - Il numero di "step" `N_ENCODING_STEPS=4` deriva da `16 feature / 4 feature_per_step = 4 step`. Modificare la compressione del patch (es. 8×8 → 4 medie 4×4 invece di 16 medie 2×2) richiederebbe ri-bilanciare `N_ENCODING_STEPS` e la shape di `theta_enc`.
 - Non c'è una *baseline* contro cui confrontare: il `custom` è coperto dalla suite ma **non c'è motivo a priori per aspettarsi che batta `e3`** (che ha 0 param di encoding e usa AmplitudeEmbedding "perfetto"). È un test di ipotesi: aggiungere capacità nell'encoding aiuta o solo aggiunge gradienti rumorosi?
@@ -157,9 +162,9 @@ In 4 step ogni qubit della coppia riceve `4 × 2 = 8` feature dei pixel interval
 - `theta_conv1, theta_conv2`: shape `(n_conv,)` (6/10/15 a seconda di ansatz)
 - `theta_pool1, theta_pool2`: shape `(2,)` ciascuno per `hur6`/`hur8`; assenti per `hur9` trace-pool
 - `a_embed, c_embed`: shape `(8,)` solo per E1
-- `theta_enc`: shape `(2, 4, 4)` solo per `custom`
+- `theta_enc`: shape `(2, 4, 12)` solo per `custom`
 - QNode su `default.qubit` con `diff_method="backprop"`, `wires = 8 (E3/custom) | 9 (E1)`
-- Init: `init_scale * randn` (default `0.01`, come hur8_two_pool_experiment)
+- Init: `init_scale * randn` (default `0.01`, come hur8_two_pool_experiment); per `custom`, le scale affini di `theta_enc` partono vicino a 1 e bias/rotazioni vicino a 0.
 
 Numero parametri trainabili (per combo):
 
@@ -167,7 +172,7 @@ Numero parametri trainabili (per combo):
 |----------|---------------------|----------------|--------------------------|
 | `e3`     | `2·n_conv + pool`   | 0              | hur6:16 · hur8:24 · hur9:30 |
 | `e1`     | `2·n_conv + pool`   | 16             | hur6:32 · hur8:40 · hur9:46 |
-| `custom` | `2·n_conv + pool`   | 32             | hur6:48 · hur8:56 · hur9:62 |
+| `custom` | `2·n_conv + pool`   | 96             | hur6:112 · hur8:120 · hur9:126 |
 
 `pool = 4` per `hur6`/`hur8`; `pool = 0` per `hur9` trace-pool.
 

@@ -129,7 +129,9 @@ class FashionQCNN(nn.Module):
         elif encoding_name == "custom":
             self.a_embed = None
             self.c_embed = None
-            self.theta_enc = nn.Parameter(init_scale * torch.randn(2, 4, 4))
+            theta_enc_init = init_scale * torch.randn(2, 4, 12)
+            theta_enc_init[:, :, [0, 2, 4, 6]] += 1.0
+            self.theta_enc = nn.Parameter(theta_enc_init)
         else:
             self.a_embed = None
             self.c_embed = None
