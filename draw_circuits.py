@@ -1,169 +1,109 @@
 """
-draw_circuits.py — Visualizzazione dei circuiti quantistici 8-qubit.
+draw_circuits.py — Visualizzazione dei 3 ansatz QCNN (Phase 1, amplitude encoding).
 
-Genera immagini dei circuiti conv8, pool8 e dei QNode completi (E1-E4)
-sia in formato grafico (matplotlib) che testuale (ASCII).
+Disegna i circuiti completi (encoding + ansatz + readout) per le 3 varianti:
+  1. no_pooling_ansatz   : AmplitudeEmbedding + conv8 → readout su tutti e 8 i wire
+  2. pool_8->4_ansatz    : AmplitudeEmbedding + conv8 + pool_8_to_4 → readout su [0,2,4,6]
+  3. pool_8->4_conv4_ansatz : stessa + conv4_retained → readout su [0,2,4,6]
+
+Usa le funzioni di circuito definite in suitev1/qcnn_builder.py.
 Output salvato in ./circuit_diagrams/
 
 Esegui con:
     conda run -n seai_env python draw_circuits.py
 """
 
-import sys
-import math
-import os
+import sys, os, math
 import numpy as np
-import torch
 import pennylane as qml
 import matplotlib
-matplotlib.use("Agg")   # backend non-interattivo, funziona senza display
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# Su Windows il terminale usa cp1252 che non supporta i caratteri grafici
-# dell'ASCII art di PennyLane (─, │, ╰, ecc.). Forziamo utf-8.
+# Su Windows, forza utf-8 per l'ASCII art di PennyLane (─ │ ╰ ecc.)
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+# Aggiungi la root al path per importare suitev1
+sys.path.insert(0, os.path.dirname(__file__))
+from suitev1.qcnn_builder import conv8, pool_8_to_4, conv4_retained
+
 # ---------------------------------------------------------------------------
-# Costanti (specchiano Test_8_qubit_qfix.py)
+# Costanti
 # ---------------------------------------------------------------------------
-N_QUBITS     = 8
-N_MEAS_QUBITS = N_QUBITS // 2          # 4
-MEAS_WIRES   = list(range(0, N_QUBITS, 2))  # [0, 2, 4, 6]
-LAMBDA_FUSION = math.pi / 4
-BETA_GLOBAL  = np.array([1.0, 10.0, 10.0, 1.0], dtype=np.float32)
+KEEP_WIRES_POOL = [0, 2, 4, 6]   # wire trattenuti dopo il pooling
+KEEP_WIRES_FLAT = list(range(8)) # tutti i wire per no_pooling
+ZZ_PAIRS_POOL   = [(0, 2), (2, 4), (4, 6), (6, 0)]
+ZZ_PAIRS_FLAT   = [(i, (i + 1) % 8) for i in range(8)]
 
 OUT_DIR = "./circuit_diagrams"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Devices dedicati alla visualizzazione (default.qubit è più robusto per draw)
+# Argomenti dummy (forma corretta per ogni QNode)
 # ---------------------------------------------------------------------------
-dev8 = qml.device("default.qubit", wires=N_QUBITS)
-dev9 = qml.device("default.qubit", wires=N_QUBITS + 1)  # E1: 8 locali + 1 globale
-
-# ---------------------------------------------------------------------------
-# Circuiti kernel
-# ---------------------------------------------------------------------------
-def conv8(theta, wires):
-    q = wires
-    for i in range(N_QUBITS):
-        qml.RY(theta[i], wires=q[i])
-    qml.CNOT(wires=[q[0], q[1]]); qml.RZ(theta[8],  wires=q[1])
-    qml.CNOT(wires=[q[2], q[3]]); qml.RZ(theta[9],  wires=q[3])
-    qml.CNOT(wires=[q[4], q[5]]); qml.RZ(theta[10], wires=q[5])
-    qml.CNOT(wires=[q[6], q[7]]); qml.RZ(theta[11], wires=q[7])
-    qml.CNOT(wires=[q[1], q[2]]); qml.RZ(theta[12], wires=q[2])
-    qml.CNOT(wires=[q[3], q[4]]); qml.RZ(theta[13], wires=q[4])
-    qml.CNOT(wires=[q[5], q[6]]); qml.RZ(theta[14], wires=q[6])
-    qml.CNOT(wires=[q[7], q[0]]); qml.RZ(theta[15], wires=q[0])
-
-def pool8(phi, wires):
-    q = wires
-    n = N_QUBITS
-    half = n // 2
-    for i in range(half):
-        qml.CRZ(phi[i], wires=[q[2*i+1], q[2*i]])
-    for i in range(half):
-        qml.CRX(phi[half+i], wires=[q[(2*i+2) % n], q[(2*i+1) % n]])
+amp256_dummy  = np.ones(256) / math.sqrt(256)   # vettore normalizzato uniforme
+norm_dummy    = np.array(math.pi / 2)           # angolo di norma medio
+theta16_dummy = np.zeros(16)                    # conv8: 16 parametri
+phi8_dummy    = np.zeros(8)                     # pool_8_to_4: 8 parametri
+theta8_dummy  = np.zeros(8)                     # conv4_retained: 8 parametri
 
 # ---------------------------------------------------------------------------
-# Embedding functions
+# Devices (default.qubit: più robusto per draw_mpl)
 # ---------------------------------------------------------------------------
-def embed_E2_local_8(quad_means_8):
-    for i in range(N_QUBITS):
-        qml.RY(math.pi * float(quad_means_8[i]), wires=i)
-
-def embed_E4_local_8(quad_means_8, a8, c8):
-    for i in range(N_QUBITS):
-        qml.RY(float(a8[i]) * (math.pi * float(quad_means_8[i])) + float(c8[i]), wires=i)
-
-def inject_global_on_wire_8(gA4_vec):
-    beta = torch.tensor(BETA_GLOBAL)
-    gammas = math.pi * torch.tanh(beta * torch.tensor(gA4_vec, dtype=torch.float32))
-    g = [float(gammas[i]) for i in range(4)]
-    qml.RY(g[0], wires=8); qml.RZ(g[1], wires=8)
-    qml.RX(g[2], wires=8); qml.RZ(g[3], wires=8)
-    # re-upload (omega fisso = pi/2)
-    qml.RY(math.pi/2, wires=8)
-    qml.RZ(g[0], wires=8); qml.RX(g[1], wires=8)
-    qml.RY(g[2], wires=8); qml.RZ(g[3], wires=8)
-
-def fuse_global_to_locals_8(lam=LAMBDA_FUSION):
-    for i in range(N_QUBITS):
-        qml.CNOT(wires=[N_QUBITS, i])
-        qml.RZ(lam, wires=i)
-        qml.CNOT(wires=[N_QUBITS, i])
+dev8 = qml.device("default.qubit", wires=8)
 
 # ---------------------------------------------------------------------------
-# QNodes per visualizzazione (interface numpy, diff_method=best)
+# QNode 1 — no_pooling_ansatz
 # ---------------------------------------------------------------------------
 @qml.qnode(dev8, interface="numpy")
-def qnode_conv8_only(theta):
-    """Solo conv8 — per vedere il kernel convoluzionale isolato."""
-    conv8(theta, wires=list(range(N_QUBITS)))
-    return [qml.expval(qml.PauliZ(i)) for i in range(N_QUBITS)]
-
-@qml.qnode(dev8, interface="numpy")
-def qnode_pool8_only(phi):
-    """Solo pool8 — per vedere il kernel di pooling isolato."""
-    pool8(phi, wires=list(range(N_QUBITS)))
-    return [qml.expval(qml.PauliZ(i)) for i in MEAS_WIRES]
-
-@qml.qnode(dev8, interface="numpy")
-def qnode_E2_draw(quad_means_8, theta_conv, phi_pool):
-    """E2: Angle encoding (RY fisso) + conv8 + pool8."""
-    embed_E2_local_8(quad_means_8)
-    conv8(theta_conv, wires=list(range(N_QUBITS)))
-    pool8(phi_pool, wires=list(range(N_QUBITS)))
-    return [qml.expval(qml.PauliZ(i)) for i in MEAS_WIRES]
-
-@qml.qnode(dev8, interface="numpy")
-def qnode_E3_draw(quad_amp_64, theta_conv, phi_pool):
-    """E3: AmplitudeEmbedding (64→256 con padding) + conv8 + pool8."""
-    qml.AmplitudeEmbedding(quad_amp_64, wires=range(N_QUBITS), pad_with=0.0, normalize=True)
-    conv8(theta_conv, wires=list(range(N_QUBITS)))
-    pool8(phi_pool, wires=list(range(N_QUBITS)))
-    return [qml.expval(qml.PauliZ(i)) for i in MEAS_WIRES]
-
-@qml.qnode(dev8, interface="numpy")
-def qnode_E4_draw(quad_means_8, a8, c8, theta_conv, phi_pool):
-    """E4: Angle encoding trainable (a·π·x + c) + conv8 + pool8."""
-    embed_E4_local_8(quad_means_8, a8, c8)
-    conv8(theta_conv, wires=list(range(N_QUBITS)))
-    pool8(phi_pool, wires=list(range(N_QUBITS)))
-    return [qml.expval(qml.PauliZ(i)) for i in MEAS_WIRES]
-
-@qml.qnode(dev9, interface="numpy")
-def qnode_E1_draw(quad_means_8, gA4_vec, a8, c8, theta_conv, phi_pool):
-    """E1: Trainable angle + global ancilla (wire 8) + CNOT fusion + conv8 + pool8."""
-    embed_E4_local_8(quad_means_8, a8, c8)
-    inject_global_on_wire_8(gA4_vec)
-    fuse_global_to_locals_8(lam=LAMBDA_FUSION)
-    conv8(theta_conv, wires=list(range(N_QUBITS)))
-    pool8(phi_pool, wires=list(range(N_QUBITS)))
-    return [qml.expval(qml.PauliZ(i)) for i in MEAS_WIRES]
+def qnode_no_pool(amp256, norm_angle, theta_conv):
+    qml.AmplitudeEmbedding(amp256, wires=range(8), normalize=True)
+    qml.RY(norm_angle, wires=0)
+    conv8(theta_conv)
+    return (
+        [qml.expval(qml.PauliZ(i)) for i in KEEP_WIRES_FLAT]
+        + [qml.expval(qml.PauliZ(i) @ qml.PauliZ(j)) for i, j in ZZ_PAIRS_FLAT]
+    )
 
 # ---------------------------------------------------------------------------
-# Argomenti dummy (valori neutri ma non tutti zero per evitare gate banali)
+# QNode 2 — pool_8->4_ansatz
 # ---------------------------------------------------------------------------
-theta_dummy  = np.zeros(16)
-phi_dummy    = np.zeros(8)
-means_dummy  = np.full(8, 0.5)
-a_dummy      = np.ones(8)
-c_dummy      = np.zeros(8)
-gA4_dummy    = np.array([0.3, 0.1, 0.2, 0.4])
-amp_dummy    = np.ones(64) / math.sqrt(64)   # vettore normalizzato uniforme
+@qml.qnode(dev8, interface="numpy")
+def qnode_pool_shallow(amp256, norm_angle, theta_conv, phi_pool):
+    qml.AmplitudeEmbedding(amp256, wires=range(8), normalize=True)
+    qml.RY(norm_angle, wires=0)
+    conv8(theta_conv)
+    pool_8_to_4(phi_pool)
+    return (
+        [qml.expval(qml.PauliZ(i)) for i in KEEP_WIRES_POOL]
+        + [qml.expval(qml.PauliZ(i) @ qml.PauliZ(j)) for i, j in ZZ_PAIRS_POOL]
+    )
 
 # ---------------------------------------------------------------------------
-# Helper: salva figura e stampa ASCII
+# QNode 3 — pool_8->4_conv4_ansatz
 # ---------------------------------------------------------------------------
-def draw_and_save(qnode, args, name, title, figsize=(14, 5)):
-    # ASCII art → file (non a stdout: Windows cp1252 non supporta i caratteri grafici)
+@qml.qnode(dev8, interface="numpy")
+def qnode_pool_deep(amp256, norm_angle, theta_conv, phi_pool, theta_conv2):
+    qml.AmplitudeEmbedding(amp256, wires=range(8), normalize=True)
+    qml.RY(norm_angle, wires=0)
+    conv8(theta_conv)
+    pool_8_to_4(phi_pool)
+    conv4_retained(theta_conv2)
+    return (
+        [qml.expval(qml.PauliZ(i)) for i in KEEP_WIRES_POOL]
+        + [qml.expval(qml.PauliZ(i) @ qml.PauliZ(j)) for i, j in ZZ_PAIRS_POOL]
+    )
+
+# ---------------------------------------------------------------------------
+# Helper: salva PNG + TXT
+# ---------------------------------------------------------------------------
+def draw_and_save(qnode, args, name, title, figsize=(18, 6)):
+    # ASCII art → file UTF-8
     ascii_str = qml.draw(qnode, decimals=2)(*args)
     txt_path = os.path.join(OUT_DIR, f"{name}.txt")
     with open(txt_path, "w", encoding="utf-8") as f:
-        f.write(f"{title}\n{'='*60}\n")
+        f.write(f"{title}\n{'=' * 60}\n")
         f.write(ascii_str)
 
     # Grafico matplotlib → PNG
@@ -174,64 +114,38 @@ def draw_and_save(qnode, args, name, title, figsize=(14, 5)):
     fig.savefig(img_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
-    # Solo ASCII safe su stdout
-    print(f"  [{name}] OK  ->  {name}.png + {name}.txt")
+    print(f"  [{name}]  ->  {name}.png + {name}.txt")
 
 # ---------------------------------------------------------------------------
-# Disegna tutti i circuiti
+# Main
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    print(f"Output directory: {os.path.abspath(OUT_DIR)}")
+    print(f"Output directory: {os.path.abspath(OUT_DIR)}\n")
 
     draw_and_save(
-        qnode_conv8_only,
-        (theta_dummy,),
-        name="1_conv8",
-        title="conv8 — kernel convoluzionale (8 RY + 2 layer CNOT-RZ)",
-        figsize=(16, 5),
-    )
-
-    draw_and_save(
-        qnode_pool8_only,
-        (phi_dummy,),
-        name="2_pool8",
-        title="pool8 — kernel di pooling (4 CRZ + 4 CRX)",
-        figsize=(12, 5),
-    )
-
-    draw_and_save(
-        qnode_E2_draw,
-        (means_dummy, theta_dummy, phi_dummy),
-        name="3_E2_full",
-        title="E2 completo — RY(π·x) + conv8 + pool8",
-        figsize=(18, 5),
-    )
-
-    draw_and_save(
-        qnode_E3_draw,
-        (amp_dummy, theta_dummy, phi_dummy),
-        name="4_E3_full",
-        title="E3 completo — AmplitudeEmbedding(64→256) + conv8 + pool8",
-        figsize=(18, 5),
-    )
-
-    draw_and_save(
-        qnode_E4_draw,
-        (means_dummy, a_dummy, c_dummy, theta_dummy, phi_dummy),
-        name="5_E4_full",
-        title="E4 completo — RY(a·π·x + c) trainable + conv8 + pool8",
-        figsize=(18, 5),
-    )
-
-    draw_and_save(
-        qnode_E1_draw,
-        (means_dummy, gA4_dummy, a_dummy, c_dummy, theta_dummy, phi_dummy),
-        name="6_E1_full",
-        title="E1 completo — trainable affine + global ancilla (wire 8) + fusion + conv8 + pool8",
+        qnode_no_pool,
+        (amp256_dummy, norm_dummy, theta16_dummy),
+        name="1_no_pooling_ansatz",
+        title="no_pooling_ansatz  —  AmplitudeEmbedding + RY(norm) + conv8  →  Z+ZZ su 8 wire  [16 param q]",
         figsize=(22, 6),
     )
 
-    print(f"\nDone. Tutti i circuiti salvati in: {os.path.abspath(OUT_DIR)}/")
-    print("File generati:")
+    draw_and_save(
+        qnode_pool_shallow,
+        (amp256_dummy, norm_dummy, theta16_dummy, phi8_dummy),
+        name="2_pool_8to4_ansatz",
+        title="pool_8→4_ansatz  —  AmplitudeEmbedding + RY(norm) + conv8 + pool_8_to_4  →  Z+ZZ su [0,2,4,6]  [24 param q]",
+        figsize=(22, 6),
+    )
+
+    draw_and_save(
+        qnode_pool_deep,
+        (amp256_dummy, norm_dummy, theta16_dummy, phi8_dummy, theta8_dummy),
+        name="3_pool_8to4_conv4_ansatz",
+        title="pool_8→4_conv4_ansatz  —  AmplitudeEmbedding + RY(norm) + conv8 + pool_8_to_4 + conv4_retained  →  Z+ZZ su [0,2,4,6]  [32 param q]",
+        figsize=(26, 6),
+    )
+
+    print(f"\nDone. File generati in: {os.path.abspath(OUT_DIR)}/")
     for f in sorted(os.listdir(OUT_DIR)):
         print(f"  {f}")
