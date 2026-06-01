@@ -92,7 +92,7 @@ Pooling parametrico per `hur6`/`hur8`: `hur_pool_pair` = CRZ(theta0) + CRX(theta
 | `e1`    | 9     | 16 (`a_embed`+`c_embed`)| 8 quad_means + 4 gA4 globali |
 | `custom`| 8     | 96 (`theta_enc[2,4,12]`) | 4 patch 8×8 → 16 medie 2×2 ciascuna |
 
-**E3 dettagli** - `qml.AmplitudeEmbedding(x_flat, wires=range(8), normalize=True)`, seguito da una singola `RY(norm_angle, wires=0)` parameter-free. `norm_angle = π · ||x||₂ / √n_pixels` è calcolato in `model.forward` (fuori dal QNode per non finire sul tape PennyLane).
+**E3 dettagli** - `qml.AmplitudeEmbedding(x_flat, wires=range(8), normalize=True)`. Non vengono applicate rotazioni aggiuntive dopo l'embedding: la norma/luminosità globale persa dalla normalizzazione dello stato non viene reiniettata.
 
 **E1 dettagli** - replica esatta di [versione_1_test/qcnn_builder.py:165-220](../versione_1_test/qcnn_builder.py#L165-L220):
 - RY trainabile affine su wires 0–7: `RY(a_i · π·quad_means[i] + c_i)`
@@ -331,7 +331,7 @@ Per chi viene da `suitev1` (ablation 8-qubit 10-class amplitude+head), alcuni pu
 | **gA4[0]** | `X.mean()` (raw, in `[0,1]`) | `mean − 0.5` (centrato, in `[-0.5, 0.5]`) |
 | **gA4[2]** | `(dx_o² + dy_o²).mean()` su overlap 31×31 | `(gx².mean() + gy².mean()) / 2` (medie separate) |
 | **gA4[3]** | `(V − H)/(V + H)` su `sum(dy²)`/`sum(dx²)` (gradienti) | `(h_var − v_var)/(h_var + v_var)` su varianze riga/colonna |
-| **E3 norm injection** | `π · norm_p / Σ norm_q` (relativo fra patch) | `π · ‖x‖₂ / √n_pixels` (assoluto per-immagine) |
+| **E3 rotazione post-embedding** | presente nella vecchia ablation a patch | assente: `e3` usa solo `AmplitudeEmbedding(..., normalize=True)` |
 | **E1 quad_means** | 8 strisce 2×16 **per patch** (4 patch × 8 = 32) | 8 blocchi 8×4 **per intera immagine** (1 × 8 = 8) |
 | **β_global** | `(1, 10, 10, 1)` su gA4 raw (mean in `[0,1]`) | `(1, 10, 10, 1)` su gA4 centrato (mean in `[-0.5, 0.5]`) - gli angoli risultanti coprono range diversi |
 

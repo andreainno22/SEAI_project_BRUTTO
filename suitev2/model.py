@@ -160,11 +160,8 @@ class FashionQCNN(nn.Module):
 
         if encoding_name == "e3":
             @qml.qnode(self.dev, interface="torch", diff_method="backprop")
-            def qnode_e3(x_flat, norm_angle, theta_c1, theta_p1,
-                         theta_c2, theta_p2, theta_final):
-                # norm_angle: (B,) tensor in [0, pi] - pre-computed L2-norm angle.
-                # Passed directly to enc_fn so the QNode tape stays static.
-                enc_fn(x_flat, norm_angle=norm_angle, n_qubits=8)
+            def qnode_e3(x_flat, theta_c1, theta_p1, theta_c2, theta_p2, theta_final):
+                enc_fn(x_flat, n_qubits=8)
 
                 convolution_layer_on_wires(conv_fn, theta_c1, WIRES_8)
                 apply_pool(theta_p1, POOL_PAIRS_LAYER1)
@@ -223,12 +220,8 @@ class FashionQCNN(nn.Module):
         device = x_flat.device
         with torch.device(device):
             if self.encoding_name == "e3":
-                # Compute the L2-norm angle outside the QNode (torch op, not on the tape).
-                # norm_angle in [0, pi]: blank image -> 0, fully-saturated image -> ~pi.
-                # Dividing by sqrt(n_pixels) normalises across different image sizes.
-                norm_angle = math.pi * x_flat.norm(dim=-1) / math.sqrt(float(x_flat.shape[1]))
                 probs = self.qnode(
-                    x_flat, norm_angle,
+                    x_flat,
                     self.theta_conv1, self.theta_pool1,
                     self.theta_conv2, self.theta_pool2,
                     self.theta_final if self.theta_final is not None else x_flat.new_empty(0),

@@ -2,7 +2,7 @@
 encodings.py - Data encoding strategies for the suite.
 
   - encoding_e3: amplitude embedding of 256-pixel image on 8 qubits
-                 (identical to hur8_two_pool_experiment baseline, + optional norm injection).
+                 (classic amplitude encoding; no extra norm/brightness injection).
   - encoding_e1: trainable affine angle embedding on 8 qubits + a global
                  ancilla (wire 8) re-uploading 4 global statistics, fused
                  to the local wires via CNOT-RZ-CNOT.
@@ -42,31 +42,15 @@ def compute_gamma(gA4_vec: torch.Tensor) -> torch.Tensor:
 # E3 - amplitude embedding (256 amplitudes on 8 qubits)
 # ============================================================
 
-def encoding_e3(x_flat, norm_angle=None, n_qubits=8):
+def encoding_e3(x_flat, n_qubits=8):
     """Apply amplitude embedding of a 256-d (or 2^n_qubits) input.
 
-    PennyLane's AmplitudeEmbedding handles normalisation internally.  If
-    `norm_angle` (shape (B,), in [0, pi]) is provided, a parameter-free
-    RY rotation is injected on wire 0 after the embedding to re-introduce
-    the pixel-intensity scale information that AmplitudeEmbedding(normalize=True)
-    discards.  The angle is pre-computed outside the QNode as:
-
-        norm_angle = pi * ||x_flat||_2 / sqrt(n_pixels)
-
-    so that a blank image gives 0 and a fully-saturated image gives ~pi.
-    Matches hur8_two_pool_experiment's encoding step.
-
-    Note: the norm-injection IDEA is borrowed from suitev1, but the formula
-    here is intentionally different.  suitev1 processes 4 patches per image
-    and injects a RELATIVE per-patch norm `pi * norm_p / sum(norm_q)` to
-    encode inter-patch contrast.  suitev2 processes the whole 16x16 image as
-    a single QNode call, so the natural quantity to inject is the ABSOLUTE
-    image brightness, normalised by sqrt(n_pixels) so it stays bounded in
-    [0, pi] regardless of image size.
+    PennyLane's AmplitudeEmbedding handles the state-vector normalisation
+    internally. No additional rotations are applied after the embedding, so
+    this is the standard amplitude encoding used as a fixed, non-trainable
+    data upload.
     """
     qml.AmplitudeEmbedding(features=x_flat, wires=range(n_qubits), normalize=True)
-    if norm_angle is not None:
-        qml.RY(norm_angle, wires=0)
 
 
 # ============================================================
