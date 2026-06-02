@@ -2,42 +2,42 @@
   "ansatz": "hur8",
   "encoding": "custom",
   "seed": 42,
-  "n_params": 56,
-  "n_epochs_trained": 1,
+  "n_params": 120,
+  "n_epochs_trained": 20,
   "chunk_id": "base",
   "test_offset": 0,
   "test_size": 2000,
-  "train_acc_final": 0.2700000020861626,
-  "val_acc_best": 0.2299999983906746,
-  "val_acc_final": 0.2299999983906746,
-  "best_epoch": 1,
-  "best_val_loss": 2.035029906272888,
-  "test_loss": 2.050294435501099,
-  "test_acc": 0.23300000055134296,
+  "train_acc_final": 0.9000833526849746,
+  "val_acc_best": 0.8995000195503234,
+  "val_acc_final": 0.9010000202655792,
+  "best_epoch": 16,
+  "best_val_loss": 0.4540836533308029,
+  "test_loss": 0.4646893584728241,
+  "test_acc": 0.8960000190734864,
   "confusion_matrix": [
     [
-      279,
-      136,
+      413,
+      54,
       17,
-      68
+      16
     ],
     [
-      343,
-      94,
-      25,
-      38
+      10,
+      481,
+      0,
+      9
     ],
     [
-      197,
-      293,
-      7,
-      3
+      0,
+      0,
+      500,
+      0
     ],
     [
-      192,
-      148,
-      74,
-      86
+      12,
+      21,
+      69,
+      398
     ]
   ]
 }

@@ -1,0 +1,20 @@
+{
+  "ansatz": "custom_ansatz",
+  "encoding": "custom",
+  "seed": 59,
+  "epochs_initial": 20,
+  "lr_qkernel": 0.001,
+  "lr_embed": 0.001,
+  "lr": 0.001,
+  "batch_size": 24,
+  "early_stop_patience": 10,
+  "early_stop_min_rel_delta": 0.01,
+  "train_per_class": 3000,
+  "val_per_class": 500,
+  "test_per_class": 500,
+  "n_qubits": 8,
+  "n_conv_params": 11,
+  "n_pool_params": 3,
+  "use_final_classifier": true,
+  "n_trainable_params": 135
+}

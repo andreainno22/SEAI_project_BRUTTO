@@ -1,0 +1,43 @@
+{
+  "ansatz": "hur8",
+  "encoding": "custom",
+  "seed": 59,
+  "n_params": 120,
+  "n_epochs_trained": 20,
+  "chunk_id": "base",
+  "test_offset": 0,
+  "test_size": 2000,
+  "train_acc_final": 0.9091666866540908,
+  "val_acc_best": 0.908000018119812,
+  "val_acc_final": 0.9130000169277191,
+  "best_epoch": 19,
+  "best_val_loss": 0.4022487357854843,
+  "test_loss": 0.42895623719692233,
+  "test_acc": 0.8980000207424164,
+  "confusion_matrix": [
+    [
+      412,
+      44,
+      5,
+      39
+    ],
+    [
+      17,
+      475,
+      0,
+      8
+    ],
+    [
+      0,
+      0,
+      496,
+      4
+    ],
+    [
+      27,
+      2,
+      58,
+      413
+    ]
+  ]
+}
