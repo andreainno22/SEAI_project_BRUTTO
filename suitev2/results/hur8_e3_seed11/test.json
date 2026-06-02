@@ -3,41 +3,41 @@
   "encoding": "e3",
   "seed": 11,
   "n_params": 24,
-  "n_epochs_trained": 20,
+  "n_epochs_trained": 18,
   "chunk_id": "base",
   "test_offset": 0,
   "test_size": 2000,
-  "train_acc_final": 0.7199166879653931,
-  "val_acc_best": 0.7190000197887421,
-  "val_acc_final": 0.7190000197887421,
-  "best_epoch": 20,
-  "best_val_loss": 0.9372153244018555,
-  "test_loss": 0.9328888154029846,
-  "test_acc": 0.7220000176429748,
+  "train_acc_final": 0.7324999998211861,
+  "val_acc_best": 0.7685000011920929,
+  "val_acc_final": 0.7429999979734421,
+  "best_epoch": 8,
+  "best_val_loss": 0.9548339288234711,
+  "test_loss": 0.9508633110523224,
+  "test_acc": 0.7584999988079071,
   "confusion_matrix": [
     [
-      201,
-      277,
+      247,
+      227,
       1,
-      21
+      25
     ],
     [
-      85,
-      410,
+      66,
+      427,
       0,
-      5
+      7
     ],
     [
       0,
-      1,
-      439,
-      60
+      0,
+      445,
+      55
     ],
     [
-      10,
-      69,
-      27,
-      394
+      14,
+      53,
+      35,
+      398
     ]
   ]
 }
