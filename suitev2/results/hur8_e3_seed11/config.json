@@ -1,7 +1,7 @@
 {
   "ansatz": "hur8",
   "encoding": "e3",
-  "seed": 11,
+  "seed": 12,
   "epochs_initial": 20,
   "lr_qkernel": 0.001,
   "lr_embed": 0.001,
