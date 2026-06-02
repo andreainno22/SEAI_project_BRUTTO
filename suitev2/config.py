@@ -42,6 +42,7 @@ class BaselineConfig:
     LR: float = 1e-3  # kept for config.json logging / backward compat
     EARLY_STOP_PATIENCE: int = 10
     EARLY_STOP_MIN_REL_DELTA: float = 1e-2
+    EARLY_STOP_MIN_ACC_DELTA: float = 0.001  # absolute val_acc improvement to reset patience
     LABEL_SMOOTHING: float = 0.1
 
     # Optimizer - per-group AdamW learning rates & weight decays

@@ -211,18 +211,22 @@ def run_epoch(model, loader, device, optimizer=None):
 def _train_loop(model, optimizer, train_loader, val_loader, device,
                 metrics_writer, metrics_file,
                 start_epoch, n_epochs_to_run,
-                best_val_loss_so_far, log_fn, scheduler=None):
+                best_val_acc_so_far, log_fn, scheduler=None):
     """Run training for `n_epochs_to_run` epochs, starting from `start_epoch`.
 
+    Early stopping and best-checkpoint selection are based on val_acc.
+    Patience resets only when val_acc improves by at least EARLY_STOP_MIN_ACC_DELTA.
+
     Appends rows to metrics.csv (one per epoch). Returns:
-      (best_state_dict, best_epoch, best_val_loss,
-       train_acc_final, val_acc_final, val_acc_best,
+      (best_state_dict, best_epoch, best_val_loss_at_best,
+       train_acc_final, val_acc_final, best_val_acc,
        last_epoch_idx)
+    where best_val_loss_at_best is the val_loss recorded at the best-acc epoch.
     """
     best_state = None
     best_epoch = -1
-    best_val_loss = best_val_loss_so_far
-    val_acc_best = -1.0
+    best_val_acc = best_val_acc_so_far
+    best_val_loss_at_best = float("inf")
     patience = 0
 
     train_acc_final = 0.0
@@ -251,13 +255,11 @@ def _train_loop(model, optimizer, train_loader, val_loader, device,
         metrics_file.flush()
         os.fsync(metrics_file.fileno())
 
-        min_improvement = abs(best_val_loss) * BASELINE.EARLY_STOP_MIN_REL_DELTA
-        is_first_best = not np.isfinite(best_val_loss)
-        if is_first_best or val_loss < best_val_loss - min_improvement:
-            best_val_loss = val_loss
+        if val_acc > best_val_acc + BASELINE.EARLY_STOP_MIN_ACC_DELTA:
+            best_val_acc = val_acc
+            best_val_loss_at_best = val_loss
             best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-            val_acc_best = val_acc
             patience = 0
         else:
             patience += 1
@@ -272,13 +274,13 @@ def _train_loop(model, optimizer, train_loader, val_loader, device,
             f"val_loss={val_loss:.4f} acc={val_acc:.4f} | "
             f"gnorm={train_gnorm:.3e} | {dt:.1f}s"
         )
-        
+
         if patience >= BASELINE.EARLY_STOP_PATIENCE:
             log_fn(f"  Early stopping at epoch {epoch}")
             break
 
-    return (best_state, best_epoch, best_val_loss,
-            train_acc_final, val_acc_final, val_acc_best,
+    return (best_state, best_epoch, best_val_loss_at_best,
+            train_acc_final, val_acc_final, best_val_acc,
             last_epoch_idx)
 
 
@@ -294,7 +296,7 @@ def save_best_state(run_dir, best_state_dict):
 
 
 def save_last_state(run_dir, model, optimizer, last_epoch, best_val_loss,
-                    scheduler_T0: int):
+                    scheduler_T0: int, best_val_acc: float = -1.0):
     """Persist the full training state for resuming.
 
     `scheduler_T0` is the T_0 used when the scheduler was created so that
@@ -305,6 +307,7 @@ def save_last_state(run_dir, model, optimizer, last_epoch, best_val_loss,
         "optimizer_state": optimizer.state_dict(),
         "last_epoch":      last_epoch,
         "best_val_loss":   best_val_loss,
+        "best_val_acc":    best_val_acc,
         "scheduler_T0":    scheduler_T0,
     }, os.path.join(run_dir, "last_state.pt"))
 
@@ -331,7 +334,8 @@ def load_last_state(run_dir, model, optimizer):
         # continue with a fresh optimizer - model weights are still restored.
         pass
     scheduler_T0 = int(ckpt.get("scheduler_T0", max(1, BASELINE.EPOCHS // 3)))
-    return int(ckpt["last_epoch"]), float(ckpt["best_val_loss"]), scheduler_T0
+    best_val_acc = float(ckpt.get("best_val_acc", -1.0))
+    return int(ckpt["last_epoch"]), float(ckpt["best_val_loss"]), scheduler_T0, best_val_acc
 
 
 def load_best_state(run_dir, model):
@@ -420,7 +424,7 @@ def train_one_run(ansatz_name, encoding_name, seed, run_dir,
             model, optimizer, train_loader, val_loader, device,
             metrics_w, metrics_f,
             start_epoch=1, n_epochs_to_run=epochs,
-            best_val_loss_so_far=float("inf"),
+            best_val_acc_so_far=-1.0,
             log_fn=log_fn,
             scheduler=scheduler,
         )
@@ -429,7 +433,8 @@ def train_one_run(ansatz_name, encoding_name, seed, run_dir,
 
     # Persist checkpoints
     save_best_state(run_dir, best_state)
-    save_last_state(run_dir, model, optimizer, last_epoch, best_val_loss, scheduler_T0=T0)
+    save_last_state(run_dir, model, optimizer, last_epoch, best_val_loss,
+                    scheduler_T0=T0, best_val_acc=val_acc_best)
 
     # Test eval uses the best checkpoint
     if best_state is not None:
@@ -497,7 +502,7 @@ def extend_training(run_dir, extra_epochs, log_fn=print):
     # has the same group structure and the state_dict can be loaded correctly.
     model = FashionQCNN(ansatz_name, encoding_name).to(device)
     optimizer = build_optimizer(model)
-    last_epoch_done, best_val_loss, prev_T0 = load_last_state(run_dir, model, optimizer)
+    last_epoch_done, best_val_loss, prev_T0, best_val_acc = load_last_state(run_dir, model, optimizer)
     # Use a fresh cosine schedule for the extension window.
     T0_ext = max(1, extra_epochs // 3)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
@@ -529,7 +534,7 @@ def extend_training(run_dir, extra_epochs, log_fn=print):
             metrics_w, metrics_f,
             start_epoch=last_epoch_done + 1,
             n_epochs_to_run=extra_epochs,
-            best_val_loss_so_far=best_val_loss,
+            best_val_acc_so_far=best_val_acc,
             log_fn=log_fn,
             scheduler=scheduler,
         )
@@ -540,7 +545,7 @@ def extend_training(run_dir, extra_epochs, log_fn=print):
     if best_state_new is not None:
         save_best_state(run_dir, best_state_new)
     save_last_state(run_dir, model, optimizer, last_epoch_new, best_val_loss_new,
-                    scheduler_T0=T0_ext)
+                    scheduler_T0=T0_ext, best_val_acc=val_acc_best)
 
     # Test eval on base chunk using the (possibly updated) best state
     load_best_state(run_dir, model)
