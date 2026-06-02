@@ -1,0 +1,43 @@
+{
+  "ansatz": "custom_ansatz",
+  "encoding": "e3",
+  "seed": 59,
+  "n_params": 39,
+  "n_epochs_trained": 20,
+  "chunk_id": "base",
+  "test_offset": 0,
+  "test_size": 2000,
+  "train_acc_final": 0.8992500199079514,
+  "val_acc_best": 0.8950000185966491,
+  "val_acc_final": 0.9020000190734864,
+  "best_epoch": 19,
+  "best_val_loss": 0.7734260902404785,
+  "test_loss": 0.7796199207305908,
+  "test_acc": 0.8905000205039978,
+  "confusion_matrix": [
+    [
+      414,
+      75,
+      0,
+      11
+    ],
+    [
+      14,
+      485,
+      0,
+      1
+    ],
+    [
+      0,
+      0,
+      467,
+      33
+    ],
+    [
+      54,
+      3,
+      28,
+      415
+    ]
+  ]
+}
