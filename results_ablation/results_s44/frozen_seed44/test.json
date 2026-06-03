@@ -1,0 +1,37 @@
+{
+  "arm": "frozen",
+  "seed": 44,
+  "n_params": 52,
+  "n_epochs_trained": 16,
+  "best_epoch": 16,
+  "best_val_loss": 0.48537420493364336,
+  "val_acc_best": 0.864,
+  "test_loss": 0.4884374094605446,
+  "test_acc": 0.865,
+  "confusion_matrix": [
+    [
+      404,
+      55,
+      4,
+      37
+    ],
+    [
+      44,
+      452,
+      0,
+      4
+    ],
+    [
+      0,
+      0,
+      478,
+      22
+    ],
+    [
+      26,
+      16,
+      62,
+      396
+    ]
+  ]
+}
