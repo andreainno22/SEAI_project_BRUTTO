@@ -1,0 +1,16 @@
+{
+  "arm": "frozen",
+  "seed": 43,
+  "epochs": 20,
+  "lr": 0.001,
+  "weight_decay": 0.0,
+  "batch_size": 24,
+  "label_smoothing": 0.1,
+  "train_per_class": 3000,
+  "val_per_class": 500,
+  "test_per_class": 500,
+  "n_readout": 8,
+  "conv": "hur8",
+  "n_trainable_params": 52,
+  "cached_features": true
+}
